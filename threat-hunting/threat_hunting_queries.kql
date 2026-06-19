@@ -1,0 +1,595 @@
+// =============================================================================
+// NorthStar Honeypot — KQL Threat Hunting Query Library
+// Table: HoneypotEvents_CL
+// Workspace: honeypot-law
+// Run in: Azure Portal → Log Analytics → honeypot-law → Logs
+// =============================================================================
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RECONNAISSANCE & ENUMERATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+// User enumeration — whoami, id, uname
+HoneypotEvents_CL
+| where EventType == "command"
+| where Command matches regex @"(?i)^\s*(whoami|id|uname(\s+-[a-z]+)?)\s*$"
+| project TimeGenerated, Honeypot, SrcIP, SessionId, Command
+| order by TimeGenerated desc
+
+// Filesystem enumeration — ls, find, locate
+HoneypotEvents_CL
+| where EventType == "command"
+| where Command matches regex @"(?i)^\s*(ls(\s+-[lah]+)?|find\s+|locate\s+)"
+| project TimeGenerated, Honeypot, SrcIP, SessionId, Command
+| order by TimeGenerated desc
+
+// Network enumeration — netstat, ss, ifconfig, ip addr
+HoneypotEvents_CL
+| where EventType == "command"
+| where Command matches regex @"(?i)^\s*(netstat(\s+-[a-z]+)*|ss(\s+-[a-z]+)*|ifconfig|ip\s+(a|addr|link|route))"
+| project TimeGenerated, Honeypot, SrcIP, SessionId, Command
+| order by TimeGenerated desc
+
+// Credential file reads — /etc/passwd, /etc/shadow
+HoneypotEvents_CL
+| where EventType == "command"
+| where Command matches regex @"(?i)(cat|less|more|head|tail|strings|grep)\s+.*\/etc\/(passwd|shadow|sudoers|group)"
+| project TimeGenerated, Honeypot, SrcIP, SessionId, Command
+| order by TimeGenerated desc
+
+// Active scanning tools — nmap, masscan, nessus signatures
+HoneypotEvents_CL
+| where EventType == "command"
+| where Command matches regex @"(?i)(nmap|masscan|nessus|zmap|shodan|nuclei)\s+"
+| project TimeGenerated, Honeypot, SrcIP, SessionId, Command
+| order by TimeGenerated desc
+
+// Full recon bundle — all enumeration in one view
+HoneypotEvents_CL
+| where EventType == "command"
+| extend ReconType = case(
+    Command matches regex @"(?i)^\s*(whoami|id|uname)", "User Enum",
+    Command matches regex @"(?i)(cat|less).*\/etc\/(passwd|shadow)", "Cred File Read",
+    Command matches regex @"(?i)^\s*(ls|find |locate )", "Filesystem Enum",
+    Command matches regex @"(?i)(netstat|ss -|ifconfig|ip (a|addr))", "Network Enum",
+    Command matches regex @"(?i)(nmap|masscan|zmap)", "Port Scan",
+    Command matches regex @"(?i)(cat|less).*\/etc\/hosts", "Hosts Enum",
+    Command matches regex @"(?i)(ps (aux|ef)|top |lsof)", "Process Enum",
+    ""
+  )
+| where ReconType != ""
+| summarize Count=count(), IPs=make_set(SrcIP, 20), Sessions=make_set(SessionId, 20)
+  by ReconType, Honeypot
+| order by Count desc
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CREDENTIAL ATTACKS
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Failed SSH/RDP auth by IP — brute force detection (>20 attempts / 10 min)
+HoneypotEvents_CL
+| where EventType == "auth_attempt" and Service in ("ssh", "rdp")
+| summarize
+    Attempts    = count(),
+    Users       = make_set(Username, 20),
+    Passwords   = make_set(Password, 20),
+    FirstSeen   = min(TimeGenerated),
+    LastSeen    = max(TimeGenerated)
+  by SrcIP, Service, Honeypot, bin(TimeGenerated, 10m)
+| where Attempts > 20
+| order by Attempts desc
+
+// Successful auth immediately followed by command execution (post-exploitation)
+let authed = HoneypotEvents_CL
+    | where EventType == "auth_attempt"
+    | project AuthTime=TimeGenerated, SessionId, SrcIP, Username, Password, Service, Honeypot;
+let cmds = HoneypotEvents_CL
+    | where EventType == "command"
+    | project CmdTime=TimeGenerated, SessionId, Command;
+authed
+| join kind=inner cmds on SessionId
+| where datetime_diff('second', CmdTime, AuthTime) between (0 .. 30)
+| project AuthTime, CmdTime, SrcIP, Username, Password, Service, Honeypot, Command, SessionId
+| order by AuthTime desc
+
+// Credentials reused across multiple source IPs (shared tooling / leaked creds)
+HoneypotEvents_CL
+| where EventType == "auth_attempt" and isnotempty(Username) and isnotempty(Password)
+| summarize UniqueIPs=dcount(SrcIP), IPList=make_set(SrcIP, 20), Attempts=count()
+  by Username, Password
+| where UniqueIPs > 3
+| order by UniqueIPs desc
+
+// Default / weak password detection
+HoneypotEvents_CL
+| where EventType == "auth_attempt"
+| extend IsWeak = (
+    strcat(Username, "/", Password) in (
+      "admin/admin", "admin/password", "admin/123456", "admin/admin123",
+      "root/root", "root/password", "root/123456", "root/toor", "root/",
+      "test/test", "test/password", "guest/guest", "user/user",
+      "oracle/oracle", "pi/raspberry", "ubuntu/ubuntu", "admin/1234",
+      "admin/12345", "root/12345", "admin/pass", "root/pass"
+    )
+  )
+| where IsWeak == true
+| summarize Count=count(), IPs=make_set(SrcIP, 20), Honeypots=make_set(Honeypot)
+  by Username, Password
+| order by Count desc
+
+// Credential stuffing — same password against many different accounts
+HoneypotEvents_CL
+| where EventType == "auth_attempt" and isnotempty(Password)
+| summarize UniqueUsers=dcount(Username), Attempts=count(), IPs=make_set(SrcIP, 5)
+  by Password, bin(TimeGenerated, 1h)
+| where UniqueUsers > 10
+| order by UniqueUsers desc
+
+// Top credential combos across both honeypots
+HoneypotEvents_CL
+| where EventType == "auth_attempt" and isnotempty(Username) and isnotempty(Password)
+| summarize Attempts=count(), Honeypots=make_set(Honeypot), Services=make_set(Service)
+  by Username, Password
+| order by Attempts desc
+| take 50
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PERSISTENCE & BACKDOORS
+// ─────────────────────────────────────────────────────────────────────────────
+
+// SSH key generation
+HoneypotEvents_CL
+| where EventType == "command"
+| where Command matches regex @"(?i)ssh-keygen"
+| project TimeGenerated, Honeypot, SrcIP, SessionId, Command
+| order by TimeGenerated desc
+
+// Crontab modifications
+HoneypotEvents_CL
+| where EventType == "command"
+| where Command matches regex @"(?i)(crontab\s+-[el]|echo.*cron|tee.*\/etc\/cron|>\s*\/etc\/cron)"
+| project TimeGenerated, Honeypot, SrcIP, SessionId, Command
+| order by TimeGenerated desc
+
+// authorized_keys modifications
+HoneypotEvents_CL
+| where EventType == "command"
+| where Command matches regex @"(?i)(authorized_keys|\.ssh\/authorized)"
+| project TimeGenerated, Honeypot, SrcIP, SessionId, Command
+| order by TimeGenerated desc
+
+// Reverse shell signatures
+HoneypotEvents_CL
+| where EventType == "command"
+| extend ShellType = case(
+    Command matches regex @"(?i)bash\s+-i\s+>&", "bash reverse shell",
+    Command matches regex @"(?i)nc\s+.*-e\s+.*sh", "netcat reverse shell",
+    Command matches regex @"(?i)ncat\s+.*--sh-exec", "ncat reverse shell",
+    Command matches regex @"(?i)perl\s+-e\s+'use\s+Socket", "perl reverse shell",
+    Command matches regex @"(?i)python[23]?\s+-c\s+'import\s+socket", "python reverse shell",
+    Command matches regex @"(?i)ruby\s+-rsocket", "ruby reverse shell",
+    Command matches regex @"(?i)php\s+-r\s+'.*fsockopen", "php reverse shell",
+    Command matches regex @"(?i)socat\s+.*exec:", "socat reverse shell",
+    Command matches regex @"(?i)mkfifo.*\/tmp\/[a-z]+.*nc\s+", "mkfifo pipe shell",
+    ""
+  )
+| where ShellType != ""
+| project TimeGenerated, Honeypot, SrcIP, SessionId, ShellType, Command
+| order by TimeGenerated desc
+
+// Malware download pattern — wget/curl followed by chmod +x in same session
+let downloads = HoneypotEvents_CL
+    | where EventType == "command"
+    | where Command matches regex @"(?i)(wget |curl ).*http"
+    | project DlTime=TimeGenerated, SessionId, DlCmd=Command, SrcIP, Honeypot;
+let makeexec = HoneypotEvents_CL
+    | where EventType == "command"
+    | where Command matches regex @"(?i)chmod\s+(\+x|[0-9]*7[0-9]*)\s+"
+    | project ExTime=TimeGenerated, SessionId, ExCmd=Command;
+downloads
+| join kind=inner makeexec on SessionId
+| where ExTime > DlTime
+| project DlTime, ExTime, SrcIP, Honeypot, DlCmd, ExCmd, SessionId
+| order by DlTime desc
+
+// All persistence indicators in one view
+HoneypotEvents_CL
+| where EventType == "command"
+| extend PersistType = case(
+    Command matches regex @"(?i)ssh-keygen", "SSH Key Gen",
+    Command matches regex @"(?i)authorized_keys", "Authorized Keys",
+    Command matches regex @"(?i)crontab\s+-[el]", "Crontab Edit",
+    Command matches regex @"(?i)\/etc\/cron", "Cron File",
+    Command matches regex @"(?i)systemctl\s+enable", "Systemd Enable",
+    Command matches regex @"(?i)~\/.bashrc|~\/.profile|\/etc\/profile", "Shell Profile",
+    Command matches regex @"(?i)\/etc\/rc\.local", "RC Local",
+    ""
+  )
+| where PersistType != ""
+| summarize Count=count(), IPs=make_set(SrcIP, 10)
+  by PersistType, Honeypot
+| order by Count desc
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LATERAL MOVEMENT
+// ─────────────────────────────────────────────────────────────────────────────
+
+// IPs that connected to BOTH Meridian HR AND Cascade Medical
+HoneypotEvents_CL
+| where EventType in ("auth_attempt", "command")
+| summarize Honeypots=make_set(Honeypot), Events=count(), Services=make_set(Service)
+  by SrcIP
+| where array_length(Honeypots) > 1
+| project SrcIP, Honeypots, Services, Events
+| order by Events desc
+
+// Full timeline for cross-honeypot IPs
+let pivot_ips = HoneypotEvents_CL
+    | where EventType in ("auth_attempt", "command")
+    | summarize Honeypots=make_set(Honeypot) by SrcIP
+    | where array_length(Honeypots) > 1
+    | project SrcIP;
+HoneypotEvents_CL
+| join kind=inner pivot_ips on SrcIP
+| project TimeGenerated, SrcIP, Honeypot, Service, EventType, Username, Password, Command, SessionId
+| order by SrcIP asc, TimeGenerated asc
+
+// SSH/RDP from internal 10.0.0.x range (honeypot-to-honeypot lateral movement)
+HoneypotEvents_CL
+| where EventType in ("auth_attempt", "command")
+| where SrcIP startswith "10.0.0."
+| project TimeGenerated, Honeypot, SrcIP, Service, EventType, Username, Command, SessionId
+| order by TimeGenerated desc
+
+// Commands indicating internal network discovery (looking for other hosts)
+HoneypotEvents_CL
+| where EventType == "command"
+| where Command matches regex @"(?i)(cat\s+\/etc\/hosts|nmap\s+10\.|nmap\s+192\.168\.|nmap\s+172\.|ping\s+10\.|arp\s+-[an]|route\s+print)"
+| project TimeGenerated, Honeypot, SrcIP, SessionId, Command
+| order by TimeGenerated desc
+
+// Service enumeration on secondary targets (SSH attempts to internal IPs)
+HoneypotEvents_CL
+| where EventType == "command"
+| where Command matches regex @"(?i)(ssh\s+.*10\.|ssh\s+.*192\.168\.|ssh\s+-[a-z]+\s+10\.)"
+| project TimeGenerated, Honeypot, SrcIP, SessionId, Command
+| order by TimeGenerated desc
+
+// Same credential used on both honeypots (credential reuse = lateral movement)
+let mer = HoneypotEvents_CL
+    | where Honeypot == "MeridianHR" and EventType == "auth_attempt"
+    | project SrcIP, Username, Password, MeridianTime=TimeGenerated;
+let cas = HoneypotEvents_CL
+    | where Honeypot == "CascadeMedical" and EventType == "auth_attempt"
+    | project SrcIP, Username, Password, CascadeTime=TimeGenerated;
+mer
+| join kind=inner cas on SrcIP, Username, Password
+| extend DelayMin = datetime_diff('minute', CascadeTime, MeridianTime)
+| project SrcIP, Username, Password, MeridianTime, CascadeTime, DelayMin
+| order by DelayMin asc
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DATA EXFILTRATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Redis KEYS command — data enumeration (T1213)
+HoneypotEvents_CL
+| where EventType == "redis_command"
+| where Command matches regex @"(?i)^\s*KEYS\s+"
+| project TimeGenerated, Honeypot, SrcIP, SessionId, Command
+| order by TimeGenerated desc
+
+// Redis dump/bulk reads
+HoneypotEvents_CL
+| where EventType == "redis_command"
+| extend DangerType = case(
+    Command matches regex @"(?i)^\s*KEYS\s+", "Key Enumeration",
+    Command matches regex @"(?i)^\s*DUMP\s+", "Key Dump",
+    Command matches regex @"(?i)^\s*DEBUG\s+SLEEP", "DoS/Timing Attack",
+    Command matches regex @"(?i)^\s*CONFIG\s+SET", "Config Tampering",
+    Command matches regex @"(?i)^\s*(FLUSHALL|FLUSHDB)", "Database Wipe",
+    Command matches regex @"(?i)^\s*SLAVEOF", "Replication Hijack",
+    ""
+  )
+| where DangerType != ""
+| summarize Count=count(), IPs=make_set(SrcIP, 10)
+  by DangerType, Honeypot
+| order by Count desc
+
+// MongoDB queries on sensitive collections
+HoneypotEvents_CL
+| where EventType == "mongo_query"
+| extend SensitiveCollection = case(
+    Collection matches regex @"(?i)(api_key|secret|credential|token|password|auth)", "API Keys/Secrets",
+    Collection matches regex @"(?i)(w2|tax|payroll|salary|compensation)", "Payroll/Tax Records",
+    Collection matches regex @"(?i)(patient|medical|health|phi|record|diagnosis)", "Patient/PHI Records",
+    Collection matches regex @"(?i)(employee|hr|personnel|staff)", "HR Records",
+    Collection matches regex @"(?i)(card|payment|billing|invoice|financial)", "Financial Records",
+    Collection matches regex @"(?i)(user|account|login|session)", "User Accounts",
+    ""
+  )
+| where SensitiveCollection != ""
+| project TimeGenerated, Honeypot, SrcIP, SessionId, Collection, SensitiveCollection, Command
+| order by TimeGenerated desc
+
+// SQL queries targeting HR/Medical data (MSSQL service)
+HoneypotEvents_CL
+| where Service == "mssql"
+| extend QueryType = case(
+    Command matches regex @"(?i)SELECT\s+\*\s+FROM", "Full Table Dump",
+    Command matches regex @"(?i)SELECT.*FROM.*(employee|patient|user|account)", "Sensitive Table Read",
+    Command matches regex @"(?i)(DROP|DELETE|TRUNCATE)\s+(TABLE|FROM)", "Destructive Query",
+    Command matches regex @"(?i)INSERT\s+INTO.*VALUES", "Data Insertion",
+    Command matches regex @"(?i)EXEC\s+(xp_|sp_)", "Stored Procedure Exec",
+    Command matches regex @"(?i)xp_cmdshell", "OS Command via MSSQL",
+    ""
+  )
+| where QueryType != ""
+| project TimeGenerated, Honeypot, SrcIP, SessionId, QueryType, Command
+| order by TimeGenerated desc
+
+// Large payload transfers (high PayloadLength after auth)
+HoneypotEvents_CL
+| where PayloadLength > 10000
+| project TimeGenerated, Honeypot, Service, SrcIP, SessionId, PayloadLength, EventType
+| order by PayloadLength desc
+
+// Data exfiltration via outbound commands (curl/wget to external IPs)
+HoneypotEvents_CL
+| where EventType == "command"
+| where Command matches regex @"(?i)(curl|wget).*(http[s]?:\/\/|ftp:\/\/)"
+| where Command !matches regex @"(?i)(apt|yum|pip|gem|npm|docker)\s+"
+| project TimeGenerated, Honeypot, SrcIP, SessionId, Command
+| order by TimeGenerated desc
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COMMAND EXECUTION CHAINS
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Privilege checking chain: id → whoami → sudo -l
+let priv_sessions = HoneypotEvents_CL
+    | where EventType == "command"
+    | extend TTP = case(
+        Command matches regex @"(?i)^\s*(id|whoami)\s*$", "identity_check",
+        Command matches regex @"(?i)sudo\s+-l", "sudo_enum",
+        Command matches regex @"(?i)(sudo\s+su|su\s+-|sudo\s+-s)", "priv_esc",
+        ""
+      )
+    | where TTP != ""
+    | summarize TTPs=make_set(TTP), Count=dcount(TTP), Commands=make_list(Command, 20)
+      by SessionId, SrcIP, Honeypot;
+priv_sessions
+| where Count >= 2
+| order by Count desc
+
+// Reconnaissance chain: nmap → ssh → cat /etc/hosts
+let recon_chain = HoneypotEvents_CL
+    | where EventType == "command"
+    | extend Stage = case(
+        Command matches regex @"(?i)nmap\s+", "scan",
+        Command matches regex @"(?i)^\s*ssh\s+", "ssh_connect",
+        Command matches regex @"(?i)cat\s+.*\/etc\/hosts", "hosts_read",
+        ""
+      )
+    | where Stage != ""
+    | summarize Stages=make_set(Stage), Count=dcount(Stage), Commands=make_list(Command, 20)
+      by SessionId, SrcIP, Honeypot;
+recon_chain
+| where Count >= 2
+| order by Count desc
+
+// Malware execution chain: wget → chmod → ./<binary>
+let malware_chain = HoneypotEvents_CL
+    | where EventType == "command"
+    | extend Stage = case(
+        Command matches regex @"(?i)(wget|curl)\s+http", "download",
+        Command matches regex @"(?i)chmod\s+(\+x|[0-9]*7)", "make_exec",
+        Command matches regex @"(?i)^\s*\.\/.+", "execute",
+        ""
+      )
+    | where Stage != ""
+    | summarize Stages=make_set(Stage), Count=dcount(Stage), Commands=make_list(Command, 20)
+      by SessionId, SrcIP, Honeypot;
+malware_chain
+| where Count >= 2
+| order by Count desc
+
+// Full multi-stage TTP session classifier
+HoneypotEvents_CL
+| where EventType == "command"
+| extend TTP = case(
+    Command matches regex @"(?i)(whoami|id|uname)", "recon",
+    Command matches regex @"(?i)(cat.*\/etc\/(passwd|shadow|hosts)|ls -la)", "enum",
+    Command matches regex @"(?i)(nmap|masscan|netstat|ss -)", "network_scan",
+    Command matches regex @"(?i)(wget|curl).*http", "download",
+    Command matches regex @"(?i)chmod\s+(\+x|[0-9]*7)", "make_exec",
+    Command matches regex @"(?i)(crontab|authorized_keys|\.bashrc)", "persist",
+    Command matches regex @"(?i)(history -c|rm.*bash_history|shred)", "evade",
+    Command matches regex @"(?i)(sudo|su )", "privesc",
+    "other"
+  )
+| where TTP != "other"
+| summarize TTPs=make_set(TTP), Stages=dcount(TTP), Commands=make_list(Command, 30)
+  by SessionId, SrcIP, Honeypot
+| where Stages >= 3
+| order by Stages desc
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MITRE ATT&CK CORRELATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+// T1018 — Remote System Discovery (internal network scanning)
+HoneypotEvents_CL
+| where EventType == "command"
+| where Command matches regex @"(?i)(nmap\s+(10\.|192\.168\.|172\.)|arp\s+-[an]|nbtscan|ping\s+10\.|cat\s+\/etc\/hosts|host\s+10\.)"
+| extend Technique = "T1018: Remote System Discovery"
+| project TimeGenerated, Honeypot, SrcIP, SessionId, Technique, Command
+| order by TimeGenerated desc
+
+// T1021 — Remote Services (SSH/RDP lateral movement)
+HoneypotEvents_CL
+| where EventType == "command"
+| where Command matches regex @"(?i)(^\s*ssh\s+|^\s*rdesktop\s+|^\s*xfreerdp\s+|smbclient\s+)"
+| extend Technique = "T1021: Remote Service Session Initiation"
+| project TimeGenerated, Honeypot, SrcIP, SessionId, Technique, Command
+| order by TimeGenerated desc
+
+// T1592 — Gather Victim Host Information
+HoneypotEvents_CL
+| where EventType == "command"
+| where Command matches regex @"(?i)(uname -a|cat \/etc\/os-release|cat \/proc\/version|dmidecode|lscpu|free -h|df -h|lsblk)"
+| extend Technique = "T1592: Gather Victim Host Information"
+| project TimeGenerated, Honeypot, SrcIP, SessionId, Technique, Command
+| order by TimeGenerated desc
+
+// T1547 — Boot/Logon Autostart Execution (persistence)
+HoneypotEvents_CL
+| where EventType == "command"
+| where Command matches regex @"(?i)(crontab|\/etc\/cron|systemctl\s+enable|\/etc\/rc\.local|~\/\.bashrc|~\/\.profile|\/etc\/profile\.d)"
+| extend Technique = "T1547: Boot/Logon Autostart Execution"
+| project TimeGenerated, Honeypot, SrcIP, SessionId, Technique, Command
+| order by TimeGenerated desc
+
+// T1555 — Credentials from Password Stores
+HoneypotEvents_CL
+| where EventType == "command"
+| where Command matches regex @"(?i)(cat\s+\/etc\/shadow|cat\s+~\/\.ssh|find.*id_rsa|find.*\.pem|find.*password|grep\s+-r\s+password|cat.*credentials)"
+| extend Technique = "T1555: Credentials from Password Stores"
+| project TimeGenerated, Honeypot, SrcIP, SessionId, Technique, Command
+| order by TimeGenerated desc
+
+// Full MITRE ATT&CK heatmap — all techniques by count
+HoneypotEvents_CL
+| where EventType == "command"
+| extend Technique = case(
+    Command matches regex @"(?i)(whoami|id|uname -a)", "T1033: System Owner Discovery",
+    Command matches regex @"(?i)(cat.*\/etc\/(passwd|shadow)|grep.*password)", "T1555: Cred from Password Stores",
+    Command matches regex @"(?i)(nmap|masscan|arp -)", "T1018: Remote System Discovery",
+    Command matches regex @"(?i)(netstat|ss -|ifconfig|ip addr)", "T1016: Network Config Discovery",
+    Command matches regex @"(?i)(ps aux|ps ef|top |lsof)", "T1057: Process Discovery",
+    Command matches regex @"(?i)(wget|curl|tftp|scp )", "T1105: Ingress Tool Transfer",
+    Command matches regex @"(?i)(bash -i|nc -e|python.*socket|perl.*Socket)", "T1059: Command & Script Interp",
+    Command matches regex @"(?i)(history -c|rm.*bash_history|shred |unset HIST)", "T1070: Indicator Removal",
+    Command matches regex @"(?i)(crontab|systemctl enable|\/etc\/rc\.local)", "T1547: Boot Autostart",
+    Command matches regex @"(?i)(useradd|adduser|usermod|passwd )", "T1136: Create Account",
+    Command matches regex @"(?i)(iptables -F|ufw disable|setenforce 0)", "T1562: Impair Defenses",
+    Command matches regex @"(?i)(sudo|su )", "T1548: Abuse Elevation Control",
+    Command matches regex @"(?i)(ssh |rdesktop|xfreerdp)", "T1021: Remote Services",
+    Command matches regex @"(?i)(xmrig|minerd|cryptonight)", "T1496: Resource Hijacking",
+    Command matches regex @"(?i)(authorized_keys|ssh-keygen)", "T1098: Account Manipulation",
+    "Uncategorized"
+  )
+| where Technique != "Uncategorized"
+| summarize Count=count(), IPs=make_set(SrcIP, 10), Sessions=dcount(SessionId)
+  by Technique, Honeypot
+| order by Count desc
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ANOMALY DETECTION
+// ─────────────────────────────────────────────────────────────────────────────
+
+// First-time command execution from an IP (never ran commands before)
+let historical_cmd_ips = HoneypotEvents_CL
+    | where EventType == "command" and TimeGenerated < ago(24h)
+    | summarize by SrcIP;
+HoneypotEvents_CL
+| where EventType == "command" and TimeGenerated >= ago(24h)
+| join kind=leftanti historical_cmd_ips on SrcIP
+| project TimeGenerated, Honeypot, SrcIP, SessionId, Command
+| order by TimeGenerated desc
+
+// Unusual hour activity — attack bursts at specific UTC hours
+HoneypotEvents_CL
+| where EventType == "auth_attempt"
+| extend HourUTC = hourofday(TimeGenerated)
+| summarize Attempts=count() by HourUTC, Honeypot
+| order by Attempts desc
+
+// Timing anomaly — unusually high volume spike (3x above 7-day average)
+let baseline = HoneypotEvents_CL
+    | where TimeGenerated between (ago(7d) .. ago(1h))
+    | summarize AvgPerHour = count() / 168.0;
+HoneypotEvents_CL
+| where TimeGenerated > ago(24h)
+| summarize HourlyCount=count() by bin(TimeGenerated, 1h)
+| extend Baseline = toscalar(baseline)
+| where HourlyCount > Baseline * 3
+| project TimeGenerated, HourlyCount, Baseline, Multiplier=round(HourlyCount / Baseline, 1)
+| order by Multiplier desc
+
+// Unusual service for this IP — IP attacks a service it's never targeted before
+let prior_services = HoneypotEvents_CL
+    | where TimeGenerated < ago(24h)
+    | summarize PriorServices=make_set(Service) by SrcIP;
+HoneypotEvents_CL
+| where TimeGenerated >= ago(24h)
+| where EventType == "auth_attempt"
+| join kind=leftouter prior_services on SrcIP
+| where not(set_has_element(PriorServices, Service))
+| summarize NewServices=make_set(Service), Events=count()
+  by SrcIP, Honeypot
+| order by Events desc
+
+// Known malware signature patterns in commands
+HoneypotEvents_CL
+| where EventType == "command"
+| extend MalwareHint = case(
+    Command matches regex @"(?i)(xmrig|\.\/xmr|stratum\+tcp)", "Crypto Miner (XMRig)",
+    Command matches regex @"(?i)(mirai|gafgyt|bashlite)", "Botnet (Mirai family)",
+    Command matches regex @"(?i)(curl.*pastebin|wget.*pastebin)", "Pastebin Dropper",
+    Command matches regex @"(?i)(perl.*gzip.*base64|python.*base64.*exec)", "Obfuscated Payload",
+    Command matches regex @"(?i)(\bpnscan\b|\bpnscan\.c\b)", "pnscan Scanner",
+    Command matches regex @"(?i)(\.\/[a-z0-9]{4,8}\s+-[a-z]\s+\d+\.\d+)", "Generic Malware Dropper",
+    ""
+  )
+| where MalwareHint != ""
+| project TimeGenerated, Honeypot, SrcIP, SessionId, MalwareHint, Command
+| order by TimeGenerated desc
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// QUICK DASHBOARDING VIEWS
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Attack volume over time
+HoneypotEvents_CL
+| where EventType == "auth_attempt"
+| summarize Attempts=count() by bin(TimeGenerated, 1h), Honeypot
+| order by TimeGenerated asc
+
+// Top 20 attacking IPs
+HoneypotEvents_CL
+| summarize Events=count() by SrcIP
+| top 20 by Events
+
+// Top 30 usernames
+HoneypotEvents_CL
+| where EventType == "auth_attempt" and isnotempty(Username)
+| summarize Count=count() by Username
+| top 30 by Count
+
+// Top 30 passwords
+HoneypotEvents_CL
+| where EventType == "auth_attempt" and isnotempty(Password)
+| summarize Count=count() by Password
+| top 30 by Count
+
+// Top commands run post-auth
+HoneypotEvents_CL
+| where EventType == "command"
+| summarize Count=count() by Command
+| top 50 by Count
+
+// Service distribution
+HoneypotEvents_CL
+| where EventType == "auth_attempt"
+| summarize Attempts=count() by Service, Honeypot
+| order by Attempts desc

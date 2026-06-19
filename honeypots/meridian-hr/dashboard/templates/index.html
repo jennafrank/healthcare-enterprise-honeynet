@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meridian HR Honeypot — SOC Dashboard</title>
+<style>
+:root {
+  --bg:      #0d1117;
+  --surface: #161b22;
+  --border:  #30363d;
+  --text:    #c9d1d9;
+  --muted:   #8b949e;
+  --accent:  #58a6ff;
+  --green:   #3fb950;
+  --yellow:  #d29922;
+  --red:     #f85149;
+  --purple:  #bc8cff;
+  --orange:  #ffa657;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 13px; }
+
+/* ── Header ─── */
+.hdr {
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 13px 24px; position: sticky; top: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;
+}
+.hdr-left  { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.hdr-title { font-size: 1.1rem; font-weight: 700; color: var(--accent); }
+.hdr-sub   { font-size: 10px; color: var(--muted); margin-top: 1px; }
+.hdr-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+#svc-pills { display: flex; gap: 5px; flex-wrap: wrap; }
+.pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 8px; border-radius: 12px;
+  font-size: 10px; font-weight: 700; border: 1px solid;
+}
+.p-ssh      { color: var(--accent);  border-color: rgba(88,166,255,.4);  background: rgba(88,166,255,.1); }
+.p-mongodb  { color: var(--green);   border-color: rgba(63,185,80,.4);   background: rgba(63,185,80,.1); }
+.p-ldap     { color: var(--orange);  border-color: rgba(255,166,87,.4);  background: rgba(255,166,87,.1); }
+.p-redis    { color: var(--red);     border-color: rgba(248,81,73,.4);   background: rgba(248,81,73,.1); }
+.p-kerberos { color: var(--purple);  border-color: rgba(188,140,255,.4); background: rgba(188,140,255,.1); }
+.p-mysql    { color: var(--yellow);  border-color: rgba(210,153,34,.4);  background: rgba(210,153,34,.1); }
+.p-smb      { color: #e05252;        border-color: rgba(224,82,82,.4);   background: rgba(224,82,82,.1); }
+
+.status-badge {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 11px; border-radius: 20px; font-size: 11px;
+  background: rgba(63,185,80,.1); border: 1px solid rgba(63,185,80,.3); color: var(--green);
+  transition: all .3s;
+}
+.status-badge.warn  { background: rgba(210,153,34,.1); border-color: rgba(210,153,34,.3); color: var(--yellow); }
+.status-badge.error { background: rgba(248,81,73,.1);  border-color: rgba(248,81,73,.3);  color: var(--red); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+.refresh-note { font-size: 10px; color: var(--muted); }
+
+/* ── Layout ─── */
+.wrap { max-width: 1640px; margin: 0 auto; padding: 20px 24px; }
+.g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+.g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+@media (max-width:1100px) { .g3 { grid-template-columns: 1fr 1fr; } }
+@media (max-width:800px)  { .g2,.g3 { grid-template-columns: 1fr; } }
+
+/* ── Stat cards ─── */
+.stats {
+  display: grid; grid-template-columns: repeat(6,1fr); gap: 12px; margin-bottom: 18px;
+}
+@media (max-width:1200px) { .stats { grid-template-columns: repeat(3,1fr); } }
+@media (max-width:640px)  { .stats { grid-template-columns: repeat(2,1fr); } }
+.stat {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  padding: 15px 16px; position: relative; overflow: hidden; transition: border-color .18s;
+}
+.stat:hover { border-color: var(--accent); }
+.stat::after {
+  content: ''; position: absolute; bottom: 0; left: 0; right: 0;
+  height: 2px; background: var(--sc, var(--accent)); opacity: .65;
+}
+.stat.g  { --sc: var(--green); }
+.stat.r  { --sc: var(--red); }
+.stat.y  { --sc: var(--yellow); }
+.stat.p  { --sc: var(--purple); }
+.stat.o  { --sc: var(--orange); }
+.stat-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing:.07em; margin-bottom:6px; }
+.stat-val { font-size: 2rem; font-weight: 800; line-height: 1; color: var(--sc, var(--accent)); font-variant-numeric: tabular-nums; }
+
+/* ── Panel ─── */
+.panel {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  overflow: hidden; display: flex; flex-direction: column;
+}
+.panel.mb { margin-bottom: 16px; }
+.ph {
+  background: rgba(255,255,255,.02); padding: 11px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing:.07em;
+  display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;
+}
+.ph-ct {
+  background: var(--bg); border-radius: 10px; padding: 2px 8px;
+  font-size: 10px; font-weight: 600; color: var(--accent);
+}
+.ph-ct.r { color: var(--red); }
+.pb { padding: 14px 16px; overflow-y: auto; flex: 1; }
+.pb.np { padding: 0; }
+
+/* ── Tables ─── */
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th {
+  text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border);
+  color: var(--muted); font-weight: 600; font-size: 10px;
+  text-transform: uppercase; letter-spacing:.05em; white-space: nowrap;
+  position: sticky; top: 0; background: var(--surface);
+}
+td { padding: 9px 12px; border-bottom: 1px solid rgba(48,54,61,.5); vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: rgba(255,255,255,.02); }
+tr.hi-row td { background: rgba(248,81,73,.05); }
+tr.hi-row:hover td { background: rgba(248,81,73,.09); }
+
+/* ── Badges ─── */
+.badge {
+  display: inline-flex; align-items: center;
+  padding: 2px 7px; border-radius: 4px;
+  font-size: 10px; font-weight: 700; white-space: nowrap;
+}
+.b-ssh      { background: rgba(88,166,255,.15);  color: var(--accent); }
+.b-mongodb,.b-mongo { background: rgba(63,185,80,.15);  color: var(--green); }
+.b-ldap     { background: rgba(255,166,87,.15);  color: var(--orange); }
+.b-redis    { background: rgba(248,81,73,.15);   color: var(--red); }
+.b-mysql    { background: rgba(210,153,34,.15);  color: var(--yellow); }
+.b-kerberos { background: rgba(188,140,255,.15); color: var(--purple); }
+.b-smb      { background: rgba(224,82,82,.2);    color: #e05252; }
+.b-hi       { background: rgba(248,81,73,.2); color: var(--red); border: 1px solid rgba(248,81,73,.3); }
+.b-auth     { background: rgba(63,185,80,.15);   color: var(--green); }
+
+.ip   { color: var(--accent); font-family: monospace; font-size: 11px; }
+code  { background: var(--bg); padding: 2px 5px; border-radius: 3px; font-family: monospace; font-size: 11px; color: var(--yellow); }
+.dim  { color: var(--muted); }
+.ts   { color: var(--muted); font-size: 10px; font-family: monospace; }
+.mitre-tag {
+  display: inline-flex; padding: 2px 7px; border-radius: 4px; margin: 2px;
+  background: rgba(188,140,255,.12); color: var(--purple);
+  font-size: 10px; font-weight: 600;
+}
+
+/* ── Progress bars ─── */
+.bar-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid rgba(48,54,61,.4); }
+.bar-row:last-child { border-bottom: none; }
+.bar-lbl  { flex: 0 0 160px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar-trk  { flex: 1; height: 5px; background: var(--bg); border-radius: 3px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 3px; background: var(--accent); transition: width .6s ease; }
+.bar-cnt  { flex: 0 0 30px; text-align: right; font-size: 11px; color: var(--muted); }
+
+/* ── SVG Chart areas ─── */
+.chart-area { width: 100%; height: 200px; }
+.donut-wrap { display: flex; align-items: center; gap: 20px; }
+.donut-wrap svg { flex: 0 0 140px; height: 140px; }
+.donut-legend { flex: 1; display: flex; flex-direction: column; gap: 7px; font-size: 11px; }
+.legend-row { display: flex; align-items: center; gap: 7px; }
+.legend-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+
+/* ── World map ─── */
+#worldmap { display: block; width: 100%; height: 290px; cursor: crosshair; }
+.map-tip {
+  display: none; position: absolute; pointer-events: none; z-index: 20;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 11px; font-size: 12px;
+  white-space: nowrap; box-shadow: 0 4px 16px rgba(0,0,0,.4);
+}
+
+/* ── High-interest cards ─── */
+.hi-card { border: 1px solid rgba(248,81,73,.25); border-radius: 8px; margin-bottom: 10px; overflow: hidden; background: rgba(248,81,73,.03); }
+.hi-card:last-child { margin-bottom: 0; }
+.hi-hdr { padding: 10px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; user-select: none; }
+.hi-hdr:hover { background: rgba(248,81,73,.07); }
+.hi-left  { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.hi-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.hi-reason { font-size: 10px; color: var(--red); width: 100%; }
+.chev { transition: transform .2s; color: var(--muted); }
+.chev.open { transform: rotate(180deg); }
+.hi-body { padding: 12px 14px; border-top: 1px solid rgba(248,81,73,.2); display: none; }
+.hi-body.open { display: block; }
+.hi-meta-row { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; font-size: 11px; }
+.cmd-log { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 8px 10px; font-family: monospace; font-size: 11px; max-height: 120px; overflow-y: auto; color: var(--green); line-height: 1.6; }
+.score { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; font-size: 11px; font-weight: 700; }
+
+.empty { color: var(--muted); font-size: 11px; text-align: center; padding: 22px 0; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- ══ HEADER ══ -->
+<div class="hdr">
+  <div class="hdr-left">
+    <div>
+      <div class="hdr-title">🍯 Meridian HR Honeypot</div>
+      <div class="hdr-sub">SOC Live Intelligence Dashboard</div>
+    </div>
+    <div id="svc-pills"></div>
+  </div>
+  <div class="hdr-right">
+    <div class="status-badge warn" id="status-badge">
+      <span class="dot"></span>
+      <span id="status-txt">Loading…</span>
+    </div>
+    <span class="refresh-note" id="refresh-note"></span>
+  </div>
+</div>
+
+<!-- ══ BODY ══ -->
+<div class="wrap">
+
+  <!-- STAT CARDS -->
+  <div class="stats">
+    <div class="stat">   <div class="stat-lbl">Total Sessions</div>  <div class="stat-val" id="s-tot">—</div></div>
+    <div class="stat g"> <div class="stat-lbl">Auth Successes</div>  <div class="stat-val" id="s-aut">—</div></div>
+    <div class="stat r"> <div class="stat-lbl">High Interest</div>   <div class="stat-val" id="s-hi">—</div></div>
+    <div class="stat y"> <div class="stat-lbl">Cred Attempts</div>   <div class="stat-val" id="s-cr">—</div></div>
+    <div class="stat p"> <div class="stat-lbl">Commands Run</div>    <div class="stat-val" id="s-cm">—</div></div>
+    <div class="stat o"> <div class="stat-lbl">Unique IPs</div>      <div class="stat-val" id="s-ip">—</div></div>
+  </div>
+
+  <!-- CHARTS -->
+  <div class="g2">
+    <div class="panel">
+      <div class="ph">24h Attack Volume</div>
+      <div class="pb" id="chart-hourly-wrap"><div class="empty">Loading…</div></div>
+    </div>
+    <div class="panel">
+      <div class="ph">Service Breakdown</div>
+      <div class="pb" id="chart-svc-wrap"><div class="empty">Loading…</div></div>
+    </div>
+  </div>
+
+  <!-- WORLD MAP + COUNTRIES -->
+  <div class="g2">
+    <div class="panel" style="position:relative;">
+      <div class="ph">
+        🌍 World Attack Origins
+        <span id="map-info" style="font-size:10px;color:var(--muted);text-transform:none;font-weight:400;letter-spacing:0;">—</span>
+      </div>
+      <div class="pb" style="padding:0;position:relative;overflow:visible;">
+        <canvas id="worldmap"></canvas>
+        <div class="map-tip" id="map-tip"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph">Top Source Countries</div>
+      <div class="pb" id="countries"><div class="empty">Loading…</div></div>
+    </div>
+  </div>
+
+  <!-- CREDS + ASNS + MITRE -->
+  <div class="g3">
+    <div class="panel">
+      <div class="ph">Top Credential Pairs</div>
+      <div class="pb np" style="max-height:300px;overflow-y:auto;">
+        <table>
+          <thead><tr><th>Username</th><th>Password</th><th style="text-align:right">Hits</th></tr></thead>
+          <tbody id="cred-tb"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph">Top ASNs / ISPs</div>
+      <div class="pb" id="asns"><div class="empty">Loading…</div></div>
+    </div>
+    <div class="panel">
+      <div class="ph">MITRE ATT&amp;CK Techniques</div>
+      <div class="pb np" style="max-height:300px;overflow-y:auto;">
+        <table>
+          <thead><tr><th>Technique</th><th style="text-align:right">Count</th></tr></thead>
+          <tbody id="mitre-tb"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- HIGH INTEREST -->
+  <div class="panel mb">
+    <div class="ph">🚨 High-Interest Sessions <span class="ph-ct r" id="hi-ct">0</span></div>
+    <div class="pb" id="hi-panel"><div class="empty">No high-interest sessions detected</div></div>
+  </div>
+
+  <!-- RECENT SESSIONS -->
+  <div class="panel mb">
+    <div class="ph">Recent Sessions <span class="ph-ct" id="sess-ct">0</span></div>
+    <div class="pb np" style="overflow-x:auto;max-height:460px;">
+      <table>
+        <thead><tr>
+          <th>Time (UTC)</th><th>IP</th><th>Service</th><th>Username</th>
+          <th>Country</th><th>Duration</th><th style="text-align:right">Cmds</th>
+          <th>Score</th><th>Flags</th>
+        </tr></thead>
+        <tbody id="sess-tb"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* ══════════════════════════════════════════════
+   UTILITIES
+══════════════════════════════════════════════ */
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function fmt(n) { return Number(n ?? 0).toLocaleString(); }
+function dur(s) {
+  if (!s) return '—';
+  s = Math.round(s);
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s/60) + 'm ' + (s%60) + 's';
+  return Math.floor(s/3600) + 'h ' + Math.floor((s%3600)/60) + 'm';
+}
+function fmtDT(ts) { return ts ? ts.substring(0,10) + ' ' + ts.substring(11,19) : '—'; }
+
+const FLAGS = {
+  'China':'🇨🇳','United States':'🇺🇸','Russia':'🇷🇺','Germany':'🇩🇪',
+  'Netherlands':'🇳🇱','The Netherlands':'🇳🇱','United Kingdom':'🇬🇧',
+  'Belgium':'🇧🇪','France':'🇫🇷','Brazil':'🇧🇷','India':'🇮🇳',
+  'Japan':'🇯🇵','South Korea':'🇰🇷','Canada':'🇨🇦','Australia':'🇦🇺',
+  'Singapore':'🇸🇬','Hong Kong':'🇭🇰','Taiwan':'🇹🇼','Iran':'🇮🇷',
+  'Turkey':'🇹🇷','Vietnam':'🇻🇳','Indonesia':'🇮🇩','Ukraine':'🇺🇦',
+  'Poland':'🇵🇱','Romania':'🇷🇴','Bulgaria':'🇧🇬','Sweden':'🇸🇪',
+  'Norway':'🇳🇴','Denmark':'🇩🇰','Finland':'🇫🇮','Italy':'🇮🇹',
+  'Spain':'🇪🇸','Portugal':'🇵🇹','Mexico':'🇲🇽','Argentina':'🇦🇷',
+  'Czech Republic':'🇨🇿','Austria':'🇦🇹','Switzerland':'🇨🇭',
+  'Pakistan':'🇵🇰','Thailand':'🇹🇭','Malaysia':'🇲🇾','Philippines':'🇵🇭',
+  'Egypt':'🇪🇬','Nigeria':'🇳🇬','South Africa':'🇿🇦','Israel':'🇮🇱',
+  'Saudi Arabia':'🇸🇦','United Arab Emirates':'🇦🇪',
+};
+function flag(c) { return FLAGS[c] || '🌍'; }
+
+const SVC_COLORS = {
+  ssh:'#58a6ff', mongodb:'#3fb950', mongo:'#3fb950', ldap:'#ffa657',
+  redis:'#f85149', mysql:'#d29922', kerberos:'#bc8cff', smb:'#e05252',
+};
+function svcColor(s) { return SVC_COLORS[(s||'').toLowerCase()] || '#8b949e'; }
+function svcBadge(s) {
+  const k = (s||'ssh').toLowerCase();
+  return `<span class="badge b-${k}">${esc(k.toUpperCase())}</span>`;
+}
+function scoreBox(n) {
+  n = n || 1;
+  const c = n >= 4 ? 'var(--red)' : n >= 3 ? 'var(--orange)' : n >= 2 ? 'var(--yellow)' : 'var(--green)';
+  return `<span class="score" style="background:${c}22;color:${c};">${n}</span>`;
+}
+
+/* ══════════════════════════════════════════════
+   SVG BAR CHART (24h volume)
+══════════════════════════════════════════════ */
+function makeBars(data) {
+  if (!data || !data.length) return '<div class="empty">No hourly data yet</div>';
+
+  const W = 560, H = 180;
+  const pL = 34, pR = 8, pT = 10, pB = 28;
+  const cW = W - pL - pR, cH = H - pT - pB;
+  const maxV = Math.max(...data.map(d => d.cnt), 1);
+  const bW = cW / data.length;
+
+  // Grid + y-axis
+  const ticks = 4;
+  let grid = '';
+  for (let i = 0; i <= ticks; i++) {
+    const v = Math.round(maxV * i / ticks);
+    const y = pT + cH - (i / ticks) * cH;
+    grid += `<line x1="${pL}" y1="${y}" x2="${W-pR}" y2="${y}" stroke="#21262d" stroke-width="1"/>`;
+    grid += `<text x="${pL-4}" y="${y+3.5}" text-anchor="end" font-size="9" fill="#8b949e">${v}</text>`;
+  }
+
+  // Bars + labels
+  let bars = '';
+  const labelStep = Math.ceil(data.length / 14);
+  data.forEach((d, i) => {
+    const bH = Math.max(2, (d.cnt / maxV) * cH);
+    const x = pL + i * bW + 1;
+    const y = pT + cH - bH;
+    const w = Math.max(2, bW - 2);
+
+    // Gradient effect: brighter top
+    const baseAlpha = 0.55;
+    bars += `<rect x="${x}" y="${y}" width="${w}" height="${bH}"
+      fill="#58a6ff" opacity="${baseAlpha}" rx="2"/>`;
+
+    if (i % labelStep === 0) {
+      const label = (d.hour || '').substring(11, 16); // "HH:MM"
+      bars += `<text x="${x + w/2}" y="${H-6}" text-anchor="middle" font-size="8" fill="#8b949e">${esc(label)}</text>`;
+    }
+  });
+
+  // Peak annotation
+  const peak = data.reduce((a, b) => b.cnt > a.cnt ? b : a, data[0]);
+  const pi = data.indexOf(peak);
+  if (peak.cnt > 0) {
+    const px = pL + pi * bW + bW / 2;
+    const py = pT + cH - (peak.cnt / maxV) * cH - 6;
+    bars += `<text x="${px}" y="${Math.max(py, pT+10)}" text-anchor="middle" font-size="8" fill="#58a6ff" font-weight="700">${peak.cnt}</text>`;
+  }
+
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:200px;"
+    xmlns="http://www.w3.org/2000/svg" role="img">
+    <rect width="${W}" height="${H}" fill="transparent"/>
+    ${grid}${bars}
+  </svg>`;
+}
+
+/* ══════════════════════════════════════════════
+   SVG DONUT CHART (service breakdown)
+══════════════════════════════════════════════ */
+function makeDonut(data) {
+  if (!data || !data.length) return '<div class="empty">No service data yet</div>';
+
+  const total = data.reduce((s, d) => s + d.cnt, 0);
+  if (!total) return '<div class="empty">No sessions yet</div>';
+
+  const r = 52, cx = 70, cy = 70;
+  const C = 2 * Math.PI * r;
+  const colors = data.map(d => svcColor(d.service));
+
+  // Build arcs using stroke-dasharray on stacked circles
+  let offset = 0;
+  const circles = data.map((d, i) => {
+    const frac = d.cnt / total;
+    const len  = frac * C;
+    // Gap of 2px between segments (subtract from len)
+    const gap  = data.length > 1 ? Math.min(3, len * 0.05) : 0;
+    const circle = `<circle cx="${cx}" cy="${cy}" r="${r}"
+      fill="none" stroke="${colors[i]}" stroke-width="22"
+      stroke-dasharray="${Math.max(0, len - gap).toFixed(3)} ${(C - len + gap).toFixed(3)}"
+      stroke-dashoffset="${(C / 4 - offset).toFixed(3)}"
+      opacity="0.9"/>`;
+    offset += len;
+    return circle;
+  }).join('');
+
+  const legend = data.map((d, i) => `
+    <div class="legend-row">
+      <span class="legend-swatch" style="background:${colors[i]}"></span>
+      <span class="dim" style="text-transform:uppercase;font-size:10px;flex:1;">${esc(d.service)}</span>
+      <span style="font-weight:700;">${d.cnt}</span>
+      <span class="dim" style="font-size:10px;"> ${((d.cnt/total)*100).toFixed(0)}%</span>
+    </div>`
+  ).join('');
+
+  return `<div class="donut-wrap">
+    <svg viewBox="0 0 140 140" xmlns="http://www.w3.org/2000/svg">
+      ${circles}
+      <circle cx="${cx}" cy="${cy}" r="33" fill="var(--bg)"/>
+      <text x="${cx}" y="${cy - 6}" text-anchor="middle" font-size="13" font-weight="800" fill="var(--text)">${fmt(total)}</text>
+      <text x="${cx}" y="${cy + 9}" text-anchor="middle" font-size="9" fill="var(--muted)">sessions</text>
+    </svg>
+    <div class="donut-legend">${legend}</div>
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════
+   RENDER FUNCTIONS
+══════════════════════════════════════════════ */
+function renderStats(s) {
+  document.getElementById('s-tot').textContent = fmt(s.total_sessions);
+  document.getElementById('s-aut').textContent = fmt(s.authenticated_sessions);
+  document.getElementById('s-hi').textContent  = fmt(s.high_interest_sessions);
+  document.getElementById('s-cr').textContent  = fmt(s.credential_attempts);
+  document.getElementById('s-cm').textContent  = fmt(s.total_commands);
+  document.getElementById('s-ip').textContent  = fmt(s.unique_ips);
+}
+
+function renderHourly(data) {
+  document.getElementById('chart-hourly-wrap').innerHTML = makeBars(data);
+}
+
+function renderServices(data) {
+  document.getElementById('chart-svc-wrap').innerHTML = makeDonut(data);
+  // Header pills
+  document.getElementById('svc-pills').innerHTML = (data || []).map(d =>
+    `<span class="pill p-${d.service.toLowerCase()}">${esc(d.service.toUpperCase())} <strong>${d.cnt}</strong></span>`
+  ).join('');
+}
+
+function renderCountries(data) {
+  // Bar list (right panel)
+  const el = document.getElementById('countries');
+  if (!data || !data.length) { el.innerHTML = '<div class="empty">No country data yet</div>'; }
+  else {
+    const max = data[0].cnt || 1;
+    el.innerHTML = data.map(c =>
+      `<div class="bar-row">
+         <div class="bar-lbl">${flag(c.country)} ${esc(c.country || 'Unknown')}</div>
+         <div class="bar-trk"><div class="bar-fill" style="width:${(c.cnt/max*100).toFixed(1)}%"></div></div>
+         <div class="bar-cnt">${c.cnt}</div>
+       </div>`
+    ).join('');
+  }
+  // World heatmap (left panel) — draw after layout is stable
+  requestAnimationFrame(() => drawWorldMap(data));
+}
+
+function renderAsns(data) {
+  const el = document.getElementById('asns');
+  if (!data || !data.length) { el.innerHTML = '<div class="empty">No ASN data yet</div>'; return; }
+  const max = data[0].cnt || 1;
+  el.innerHTML = data.map(a => {
+    const lbl = (a.isp || a.asn || 'Unknown').substring(0, 28);
+    const cloud = a.is_cloud ? ' <span style="color:var(--yellow)">☁</span>' : '';
+    return `<div class="bar-row">
+      <div class="bar-lbl" title="${esc(a.asn||'')}">${esc(lbl)}${cloud}</div>
+      <div class="bar-trk"><div class="bar-fill" style="width:${(a.cnt/max*100).toFixed(1)}%;background:var(--orange);"></div></div>
+      <div class="bar-cnt">${a.cnt}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderCredentials(data) {
+  const tb = document.getElementById('cred-tb');
+  if (!data || !data.length) {
+    tb.innerHTML = '<tr><td class="empty" colspan="3">No credential data yet</td></tr>';
+    return;
+  }
+  tb.innerHTML = data.slice(0, 15).map(c =>
+    `<tr>
+       <td><code>${esc(c.username || '(blank)')}</code></td>
+       <td><code>${esc(c.password || '(blank)')}</code></td>
+       <td style="text-align:right" class="dim">${c.cnt}</td>
+     </tr>`
+  ).join('');
+}
+
+function renderMitre(data) {
+  const tb = document.getElementById('mitre-tb');
+  if (!data || !data.length) {
+    tb.innerHTML = `<tr><td class="empty" colspan="2" style="padding:24px 12px;font-size:11px;">
+      No techniques mapped yet — appear as attackers run commands
+    </td></tr>`;
+    return;
+  }
+  tb.innerHTML = data.slice(0, 12).map(t =>
+    `<tr>
+       <td><span class="mitre-tag">${esc(t.technique_id)}</span> ${esc(t.technique_name)}</td>
+       <td style="text-align:right;color:var(--purple);">${t.count}</td>
+     </tr>`
+  ).join('');
+}
+
+function renderHighInterest(data) {
+  const el = document.getElementById('hi-panel');
+  document.getElementById('hi-ct').textContent = data ? data.length : 0;
+  if (!data || !data.length) {
+    el.innerHTML = '<div class="empty">No high-interest sessions detected</div>';
+    return;
+  }
+  el.innerHTML = data.slice(0, 10).map((s, i) => {
+    const cmds = s.commands ? s.commands.split(' | ').filter(Boolean) : [];
+    const mitres = (() => { try { return JSON.parse(s.mitre_techniques || '[]'); } catch { return []; } })();
+    return `
+    <div class="hi-card">
+      <div class="hi-hdr" onclick="togHi(${i})">
+        <div class="hi-left">
+          <span class="badge b-hi">HIGH INTEREST</span>
+          <span class="ip">${esc(s.peer_ip)}</span>
+          ${svcBadge(s.service)}
+          <span class="dim">${flag(s.country||'')} ${esc(s.country||'Unknown')} · <code style="color:var(--text)">${esc(s.username||'?')}</code></span>
+          <span class="hi-reason">${esc(s.high_interest_reason||'')}</span>
+        </div>
+        <div class="hi-right">
+          <span class="dim" style="font-size:11px;">${esc(fmtDT(s.connect_time))} · ${dur(s.duration_seconds)} · ${s.command_count||0} cmds</span>
+          <span class="chev" id="chev-${i}">▾</span>
+        </div>
+      </div>
+      <div class="hi-body" id="hi-body-${i}">
+        <div class="hi-meta-row">
+          <span><span class="dim">ISP:</span> ${esc(s.isp||'?')}</span>
+          <span><span class="dim">City:</span> ${esc(s.city||'?')}</span>
+          <span><span class="dim">Abuse:</span> <span style="color:${(s.abuse_confidence||0)>50?'var(--red)':'var(--muted)'}">${s.abuse_confidence||0}%</span></span>
+          <span><span class="dim">Score:</span> ${scoreBox(s.sophistication_score)}</span>
+        </div>
+        ${mitres.length ? `<div style="margin-bottom:8px;">${mitres.map(t=>`<span class="mitre-tag">${esc(t.technique_id)} ${esc(t.technique_name)}</span>`).join('')}</div>` : ''}
+        ${cmds.length
+          ? `<div class="dim" style="font-size:10px;margin-bottom:4px;">Command log (${cmds.length})</div><div class="cmd-log">${cmds.map(c=>`<div>$ ${esc(c)}</div>`).join('')}</div>`
+          : `<div class="dim" style="font-size:11px;">No commands recorded</div>`}
+      </div>
+    </div>`;
+  }).join('');
+}
+function togHi(i) {
+  document.getElementById(`hi-body-${i}`).classList.toggle('open');
+  document.getElementById(`chev-${i}`).classList.toggle('open');
+}
+
+function renderSessions(data) {
+  const tb = document.getElementById('sess-tb');
+  document.getElementById('sess-ct').textContent = data ? data.length : 0;
+  if (!data || !data.length) {
+    tb.innerHTML = '<tr><td class="empty" colspan="9">No sessions yet</td></tr>';
+    return;
+  }
+  tb.innerHTML = data.slice(0, 30).map(s => {
+    const badges = [
+      s.high_interest ? '<span class="badge b-hi" style="font-size:9px;">HI</span>' : '',
+      s.auth_success  ? '<span style="font-size:10px;color:var(--green);">✓AUTH</span>' : '',
+      s.is_vpn        ? '<span style="font-size:9px;color:var(--yellow);">VPN</span>' : '',
+      s.is_cloud      ? '<span style="font-size:10px;color:var(--muted);" title="Cloud IP">☁</span>' : '',
+    ].filter(Boolean).join(' ');
+    return `<tr${s.high_interest ? ' class="hi-row"' : ''}>
+      <td><span class="ts">${esc(fmtDT(s.connect_time))}</span></td>
+      <td><span class="ip">${esc(s.peer_ip)}</span></td>
+      <td>${svcBadge(s.service)}</td>
+      <td>${s.username ? `<code>${esc(s.username)}</code>` : '<span class="dim">—</span>'}</td>
+      <td>${s.country ? `${flag(s.country)} <span style="font-size:11px;">${esc(s.country)}</span>` : '<span class="dim">—</span>'}</td>
+      <td class="dim">${dur(s.duration_seconds)}</td>
+      <td style="text-align:right" class="dim">${s.command_count || 0}</td>
+      <td>${scoreBox(s.sophistication_score)}</td>
+      <td>${badges || '<span class="dim">—</span>'}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* ══════════════════════════════════════════════
+   STATUS HELPERS
+══════════════════════════════════════════════ */
+function setStatus(txt, state) {
+  const el = document.getElementById('status-badge');
+  el.className = 'status-badge' + (state ? ' ' + state : '');
+  document.getElementById('status-txt').textContent = txt;
+}
+
+/* ══════════════════════════════════════════════
+   DATA REFRESH  (Promise.allSettled — no single
+   endpoint failure can block the rest)
+══════════════════════════════════════════════ */
+async function refresh() {
+  const endpoints = [
+    '/api/stats',
+    '/api/sessions?limit=30',
+    '/api/countries',
+    '/api/credentials',
+    '/api/mitre',
+    '/api/high-interest',
+    '/api/services',
+    '/api/hourly',
+    '/api/asns',
+  ];
+
+  const results = await Promise.allSettled(
+    endpoints.map(url => fetch(url).then(r => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    }))
+  );
+
+  const [stats, sessions, countries, creds, mitre, hi, services, hourly, asns] =
+    results.map(r => r.status === 'fulfilled' ? r.value : null);
+
+  const failed = results.filter(r => r.status === 'rejected');
+  if (failed.length) {
+    console.warn('Some API calls failed:', failed.map(r => r.reason));
+  }
+
+  try { if (stats)     renderStats(stats); }     catch(e) { console.error('renderStats:', e); }
+  try { if (hourly)    renderHourly(hourly); }    catch(e) { console.error('renderHourly:', e); }
+  try { if (services)  renderServices(services); }catch(e) { console.error('renderServices:', e); }
+  try { if (countries) renderCountries(countries); } catch(e) { console.error('renderCountries:', e); }
+  try { if (asns)      renderAsns(asns); }        catch(e) { console.error('renderAsns:', e); }
+  try { if (creds)     renderCredentials(creds); }catch(e) { console.error('renderCredentials:', e); }
+  try { if (mitre)     renderMitre(mitre); }      catch(e) { console.error('renderMitre:', e); }
+  try { if (hi)        renderHighInterest(hi); }  catch(e) { console.error('renderHighInterest:', e); }
+  try { if (sessions)  renderSessions(sessions); }catch(e) { console.error('renderSessions:', e); }
+
+  const ok = results.length - failed.length;
+  if (failed.length === 0) {
+    setStatus('Live · ' + new Date().toLocaleTimeString());
+  } else if (ok > 0) {
+    setStatus('Partial · ' + ok + '/' + results.length + ' APIs OK', 'warn');
+  } else {
+    setStatus('API unreachable', 'error');
+  }
+  document.getElementById('refresh-note').textContent = 'Auto-refresh 15s';
+}
+
+/* ══════════════════════════════════════════════
+   WORLD ATTACK MAP  (canvas, no external deps)
+══════════════════════════════════════════════ */
+
+// Simplified land polygons: flat "lon,lat,lon,lat,..." strings.
+// Equirectangular projection; poles cropped at ±83°.
+const LAND = [
+  // North America mainland
+  '-168,72,-140,62,-130,54,-124,49,-118,33,-97,26,-84,30,-80,25,-66,45,-52,47,-60,44,-78,43,-82,46,-95,83,-168,72',
+  // Greenland
+  '-72,84,-20,84,-18,70,-38,60,-55,60,-65,65,-72,84',
+  // Central America
+  '-90,16,-83,8,-77,8,-74,11,-80,22,-84,22,-88,16,-90,16',
+  // South America
+  '-80,8,-62,12,-50,0,-35,-5,-40,-22,-52,-33,-65,-55,-75,-18,-80,8',
+  // Eurasia (one big polygon: Europe → Middle East → Asia → Russian Far East → Arctic coast → Scandinavia)
+  '-10,36,2,43,8,44,14,38,18,40,22,41,28,42,36,38,42,36,50,22,57,22,62,23,68,23,72,8,80,8,80,28,90,22,100,8,104,1,108,5,115,5,122,8,128,15,135,30,138,35,142,46,145,56,160,60,168,64,170,72,140,75,100,75,60,72,35,70,30,70,28,72,15,70,5,62,-2,59,-8,52,-10,36',
+  // Africa
+  '-17,16,-5,5,0,-5,12,-18,18,-35,32,-28,43,-12,51,12,42,12,34,26,24,32,10,37,5,5,-5,5,-17,16',
+  // Australia
+  '114,-22,120,-35,145,-38,155,-25,150,-10,142,-10,130,-12,114,-22',
+  // New Zealand (S island)
+  '168,-46,171,-44,172,-40,171,-46,168,-46',
+  // Great Britain
+  '-6,50,-2,50,2,52,0,56,-2,58,-5,58,-5,52,-6,50',
+  // Ireland
+  '-10,52,-6,52,-6,55,-10,54,-10,52',
+  // Iceland
+  '-24,63,-14,63,-13,66,-18,66,-25,65,-24,63',
+  // Japan (Honshu + Kyushu rough)
+  '130,31,132,33,136,36,141,40,142,44,140,45,136,43,133,33,130,31',
+  // Indonesia (Sumatra+Java+Borneo merged rough)
+  '95,5,105,2,108,1,118,2,115,-1,108,-8,106,-6,100,-3,95,5',
+  // Philippines
+  '117,8,122,8,127,8,122,18,117,18,117,8',
+  // Sri Lanka
+  '79,6,81,6,82,8,80,10,79,8,79,6',
+  // Taiwan
+  '120,22,121,22,122,25,121,25,120,22',
+  // Madagascar
+  '44,-12,50,-12,50,-25,44,-24,44,-12',
+  // Cuba
+  '-85,22,-75,20,-74,23,-82,23,-85,22',
+];
+
+// Country name → [lon, lat] centroid
+const CENTROIDS = {
+  'China':[104.2,35.9],'Russia':[100.3,61.5],'United States':[-95.7,37.1],
+  'Germany':[10.5,51.2],'France':[2.2,46.2],'United Kingdom':[-2.0,54.4],
+  'The Netherlands':[5.3,52.1],'Netherlands':[5.3,52.1],'Belgium':[4.5,50.5],
+  'Brazil':[-51.9,-14.2],'India':[78.9,20.6],'Iran':[53.7,32.4],
+  'Turkey':[35.2,38.9],'Vietnam':[107.0,16.6],'Japan':[138.3,36.2],
+  'South Korea':[127.8,35.9],'Australia':[133.8,-25.3],'Indonesia':[113.9,-0.8],
+  'Ukraine':[31.2,48.4],'Romania':[24.9,45.9],'Bulgaria':[25.5,42.8],
+  'Poland':[19.1,51.9],'Singapore':[103.8,1.3],'Hong Kong':[114.1,22.3],
+  'Pakistan':[69.3,30.4],'Bangladesh':[90.4,23.7],'Thailand':[101.0,15.9],
+  'Malaysia':[109.7,3.1],'Philippines':[121.8,12.9],'Egypt':[30.8,26.8],
+  'Nigeria':[8.7,9.1],'South Africa':[22.9,-30.6],'Israel':[34.9,31.0],
+  'Saudi Arabia':[45.1,23.9],'United Arab Emirates':[53.8,23.4],
+  'Mexico':[-102.6,23.6],'Canada':[-96.8,56.1],'Colombia':[-74.3,4.1],
+  'Argentina':[-63.6,-38.4],'Sweden':[18.6,60.1],'Norway':[15.0,64.6],
+  'Finland':[25.7,61.9],'Denmark':[9.5,56.3],'Austria':[14.6,47.5],
+  'Czech Republic':[15.5,49.8],'Hungary':[19.5,47.2],'Italy':[12.7,42.8],
+  'Spain':[-3.7,40.2],'Portugal':[-8.2,39.4],'Greece':[21.8,39.1],
+  'Switzerland':[8.2,46.8],'Morocco':[-5.5,32.0],'Algeria':[3.0,28.0],
+  'Kenya':[37.9,0.0],'Iraq':[43.7,33.2],'Syria':[38.1,35.0],
+  'Libya':[17.2,26.3],'Sudan':[29.9,12.9],'Ethiopia':[40.5,8.0],
+  'Angola':[17.9,-11.2],'Mozambique':[35.5,-17.3],'Tanzania':[34.9,-6.4],
+  'Myanmar':[96.0,17.2],'Cambodia':[104.9,12.6],'Taiwan':[120.9,23.7],
+  'Nepal':[84.1,28.4],'Sri Lanka':[80.7,7.9],'New Zealand':[172.5,-40.9],
+  'Romania':[24.9,45.9],'Serbia':[21.0,44.0],'Croatia':[15.2,45.1],
+};
+
+let mapHits = [];
+
+function drawWorldMap(countryData) {
+  const canvas = document.getElementById('worldmap');
+  if (!canvas) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.clientWidth  || canvas.offsetWidth  || 560;
+  const cssH = canvas.clientHeight || canvas.offsetHeight || 290;
+  canvas.width  = cssW * dpr;
+  canvas.height = cssH * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const W = cssW, H = cssH;
+
+  // Equirectangular projection, crop poles at ±83
+  const proj = (lon, lat) => [
+    (lon + 180) / 360 * W,
+    (83  - lat) / 166 * H,
+  ];
+
+  // Ocean
+  ctx.fillStyle = '#080d14';
+  ctx.fillRect(0, 0, W, H);
+
+  // Graticule (faint grid)
+  ctx.strokeStyle = '#12181f';
+  ctx.lineWidth = 0.5;
+  for (let lon = -180; lon <= 180; lon += 30) {
+    const [x] = proj(lon, 0);
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  for (let lat = -60; lat <= 60; lat += 30) {
+    const [, y] = proj(0, lat);
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  // Draw land polygons
+  LAND.forEach(str => {
+    const nums = str.split(',').map(Number);
+    ctx.beginPath();
+    for (let i = 0; i < nums.length - 1; i += 2) {
+      const [x, y] = proj(nums[i], nums[i + 1]);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = '#1a2332';
+    ctx.fill();
+    ctx.strokeStyle = '#263347';
+    ctx.lineWidth = 0.6;
+    ctx.stroke();
+  });
+
+  // Build attack lookup
+  const atk = {};
+  let maxA = 1;
+  (countryData || []).forEach(c => {
+    atk[c.country] = c.cnt;
+    if (c.cnt > maxA) maxA = c.cnt;
+  });
+
+  // Color: blue(low) → orange → red(high), sqrt scale for visibility
+  const atkColor = (cnt) => {
+    const t = Math.pow(cnt / maxA, 0.4);
+    return [
+      Math.round(88  + t * (248 - 88)),
+      Math.round(166 + t * (81  - 166)),
+      Math.round(255 + t * (73  - 255)),
+    ];
+  };
+
+  mapHits = [];
+
+  Object.entries(CENTROIDS).forEach(([name, [lon, lat]]) => {
+    const cnt = atk[name] || 0;
+    const [x, y] = proj(lon, lat);
+
+    if (cnt > 0) {
+      const [r, g, b] = atkColor(cnt);
+      const rad = 5 + Math.sqrt(cnt / maxA) * 16;
+
+      // Outer glow
+      const grd = ctx.createRadialGradient(x, y, 0, x, y, rad * 2.5);
+      grd.addColorStop(0,   `rgba(${r},${g},${b},0.4)`);
+      grd.addColorStop(0.5, `rgba(${r},${g},${b},0.12)`);
+      grd.addColorStop(1,   `rgba(${r},${g},${b},0)`);
+      ctx.beginPath();
+      ctx.arc(x, y, rad * 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = grd;
+      ctx.fill();
+
+      // Core circle
+      ctx.beginPath();
+      ctx.arc(x, y, rad, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${r},${g},${b},0.82)`;
+      ctx.fill();
+
+      // Bright inner highlight
+      ctx.beginPath();
+      ctx.arc(x, y, rad * 0.38, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,255,255,0.55)`;
+      ctx.fill();
+
+      mapHits.push({ x, y, r: rad + 10, name, cnt });
+
+    } else {
+      // Known country with zero attacks — tiny dim dot
+      ctx.beginPath();
+      ctx.arc(x, y, 2, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(55,65,80,0.7)';
+      ctx.fill();
+    }
+  });
+
+  // Colour legend bar
+  const lx = 12, ly = H - 20, lw = 110, lh = 7;
+  const leg = ctx.createLinearGradient(lx, 0, lx + lw, 0);
+  leg.addColorStop(0,    'rgba(88,166,255,0.85)');
+  leg.addColorStop(0.45, 'rgba(255,166,87,0.85)');
+  leg.addColorStop(1,    'rgba(248,81,73,0.85)');
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(lx, ly, lw, lh, 3) : ctx.rect(lx, ly, lw, lh);
+  ctx.fillStyle = leg;
+  ctx.fill();
+
+  ctx.fillStyle = '#8b949e';
+  ctx.font = `${9 * (1/dpr + (dpr-1)*0.9)}px -apple-system,sans-serif`;
+  ctx.fillText('Low', lx, ly - 4);
+  ctx.fillText('High', lx + lw - 22, ly - 4);
+
+  // Update header info
+  const total = Object.values(atk).reduce((a, b) => a + b, 0);
+  const nCtry = Object.keys(atk).length;
+  const el = document.getElementById('map-info');
+  if (el) el.textContent = nCtry + ' countr' + (nCtry === 1 ? 'y' : 'ies') + ' · ' + total + ' attacks';
+}
+
+function initMapTooltip() {
+  const canvas = document.getElementById('worldmap');
+  const tip    = document.getElementById('map-tip');
+  if (!canvas || !tip) return;
+
+  canvas.addEventListener('mousemove', e => {
+    const r   = canvas.getBoundingClientRect();
+    const scX = canvas.width  / r.width;
+    const scY = canvas.height / r.height;
+    const mx  = (e.clientX - r.left) * scX / (window.devicePixelRatio || 1);
+    const my  = (e.clientY - r.top)  * scY / (window.devicePixelRatio || 1);
+
+    let hit = null;
+    for (const t of mapHits) {
+      const dx = mx - t.x, dy = my - t.y;
+      if (dx * dx + dy * dy <= t.r * t.r) { hit = t; break; }
+    }
+
+    if (hit) {
+      const px = e.clientX - r.left;
+      const py = e.clientY - r.top;
+      tip.style.display = 'block';
+      tip.style.left = Math.min(px + 14, r.width - 180) + 'px';
+      tip.style.top  = Math.max(py - 38, 4) + 'px';
+      tip.innerHTML  = `<strong style="color:var(--text)">${esc(hit.name)}</strong>`
+                     + ` <span class="dim">·</span> `
+                     + `<span style="color:var(--red);font-weight:700">${hit.cnt}</span>`
+                     + ` <span class="dim">attack${hit.cnt !== 1 ? 's' : ''}</span>`;
+    } else {
+      tip.style.display = 'none';
+    }
+  });
+
+  canvas.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+}
+
+/* ══════════════════════════════════════════════
+   BOOT
+══════════════════════════════════════════════ */
+refresh().catch(err => {
+  console.error('Boot error:', err);
+  setStatus('Boot error — check console', 'error');
+});
+
+setInterval(refresh, 15000);
+initMapTooltip();
+</script>
+</body>
+</html>

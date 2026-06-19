@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Unified SOC Intelligence Dashboard</title>
+<style>
+:root {
+  --bg:      #0d1117;
+  --surface: #161b22;
+  --border:  #30363d;
+  --text:    #c9d1d9;
+  --muted:   #8b949e;
+  --accent:  #58a6ff;
+  --green:   #3fb950;
+  --yellow:  #d29922;
+  --red:     #f85149;
+  --purple:  #bc8cff;
+  --orange:  #ffa657;
+  --mer:     #58a6ff;
+  --cas:     #fb923c;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; font-size: 13px; }
+
+/* ── Header ── */
+.hdr { display:flex; align-items:center; justify-content:space-between; padding:14px 24px; background:var(--surface); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:100; }
+.hdr-left { display:flex; align-items:center; gap:16px; }
+.hdr-title { font-size:1.1rem; font-weight:700; color:var(--text); }
+.hdr-sub { font-size:11px; color:var(--muted); margin-top:2px; }
+.hdr-right { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.status-badge {
+  display:flex; align-items:center; gap:6px; padding:4px 11px; border-radius:20px; font-size:11px;
+  background:rgba(63,185,80,.1); border:1px solid rgba(63,185,80,.3); color:var(--green); transition:all .3s;
+}
+.status-badge.warn  { background:rgba(210,153,34,.1); border-color:rgba(210,153,34,.3); color:var(--yellow); }
+.status-badge.error { background:rgba(248,81,73,.1);  border-color:rgba(248,81,73,.3);  color:var(--red); }
+.status-badge.mer { border-color:rgba(88,166,255,.3); background:rgba(88,166,255,.08); color:var(--mer); }
+.status-badge.cas { border-color:rgba(251,146,60,.3); background:rgba(251,146,60,.08); color:var(--cas); }
+.dot { width:7px; height:7px; border-radius:50%; background:currentColor; animation:pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+.refresh-note { font-size:10px; color:var(--muted); }
+
+/* ── Layout ── */
+.wrap { max-width:1680px; margin:0 auto; padding:20px 24px; }
+.g2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px; }
+.g3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-bottom:16px; }
+@media (max-width:1100px) { .g3 { grid-template-columns:1fr 1fr; } }
+@media (max-width:800px)  { .g2,.g3 { grid-template-columns:1fr; } }
+
+/* ── Honeypot sections ── */
+.hp-section { margin-bottom:16px; }
+.hp-label {
+  font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.08em;
+  padding:6px 14px; border-radius:6px 6px 0 0; display:inline-block;
+}
+.hp-label.mer { background:rgba(88,166,255,.12); color:var(--mer); border:1px solid rgba(88,166,255,.25); border-bottom:none; }
+.hp-label.cas { background:rgba(251,146,60,.12);  color:var(--cas); border:1px solid rgba(251,146,60,.25); border-bottom:none; }
+
+/* ── Stat cards ── */
+.stats {
+  display:grid; grid-template-columns:repeat(6,1fr); gap:10px;
+  background:var(--surface); border:1px solid var(--border); border-radius:0 10px 10px 10px; padding:14px;
+}
+.stats.mer-border { border-color:rgba(88,166,255,.3); }
+.stats.cas-border { border-color:rgba(251,146,60,.3); }
+@media (max-width:1200px) { .stats { grid-template-columns:repeat(3,1fr); } }
+@media (max-width:640px)  { .stats { grid-template-columns:repeat(2,1fr); } }
+.stat {
+  background:var(--bg); border:1px solid var(--border); border-radius:8px;
+  padding:12px 14px; position:relative; overflow:hidden;
+}
+.stat::after {
+  content:''; position:absolute; bottom:0; left:0; right:0;
+  height:2px; background:var(--sc, var(--accent)); opacity:.65;
+}
+.stat.g  { --sc:var(--green); }
+.stat.r  { --sc:var(--red); }
+.stat.y  { --sc:var(--yellow); }
+.stat.p  { --sc:var(--purple); }
+.stat.o  { --sc:var(--orange); }
+.stat-lbl { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.07em; margin-bottom:5px; }
+.stat-val { font-size:1.75rem; font-weight:800; line-height:1; color:var(--sc,var(--accent)); font-variant-numeric:tabular-nums; }
+
+/* ── Panel ── */
+.panel { background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; display:flex; flex-direction:column; margin-bottom:16px; }
+.ph { display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid var(--border); font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); flex-shrink:0; }
+.ph-ct { background:rgba(88,166,255,.12); color:var(--accent); padding:1px 7px; border-radius:10px; font-size:10px; }
+.ph-ct.r { background:rgba(248,81,73,.12); color:var(--red); }
+.ph-ct.mer { background:rgba(88,166,255,.12); color:var(--mer); }
+.ph-ct.cas { background:rgba(251,146,60,.12); color:var(--cas); }
+.pb { padding:12px 14px; flex:1; }
+.empty { color:var(--muted); font-size:11px; text-align:center; padding:20px 0; }
+
+/* ── Service pills ── */
+.svc-pills { display:flex; flex-wrap:wrap; gap:5px; padding:6px 14px 10px; }
+.pill { font-size:10px; font-weight:700; padding:3px 8px; border-radius:12px; border:1px solid; }
+/* Meridian */
+.p-ssh      { color:var(--accent);  border-color:rgba(88,166,255,.4);  background:rgba(88,166,255,.1); }
+.p-mongodb  { color:var(--green);   border-color:rgba(63,185,80,.4);   background:rgba(63,185,80,.1); }
+.p-ldap     { color:var(--orange);  border-color:rgba(255,166,87,.4);  background:rgba(255,166,87,.1); }
+.p-redis    { color:var(--red);     border-color:rgba(248,81,73,.4);   background:rgba(248,81,73,.1); }
+.p-kerberos { color:var(--purple);  border-color:rgba(188,140,255,.4); background:rgba(188,140,255,.1); }
+.p-mysql    { color:var(--yellow);  border-color:rgba(210,153,34,.4);  background:rgba(210,153,34,.1); }
+.p-smb      { color:#e05252;        border-color:rgba(224,82,82,.4);   background:rgba(224,82,82,.1); }
+/* Cascade */
+.p-rdp      { color:#ff6b6b;        border-color:rgba(255,107,107,.4); background:rgba(255,107,107,.1); }
+.p-mssql    { color:#4fb8ff;        border-color:rgba(79,184,255,.4);  background:rgba(79,184,255,.1); }
+.p-vnc      { color:#c084fc;        border-color:rgba(192,132,252,.4); background:rgba(192,132,252,.1); }
+.p-telnet   { color:var(--yellow);  border-color:rgba(210,153,34,.4);  background:rgba(210,153,34,.1); }
+.p-hl7      { color:var(--orange);  border-color:rgba(255,166,87,.4);  background:rgba(255,166,87,.1); }
+.p-smtp     { color:#79c0ff;        border-color:rgba(121,192,255,.4); background:rgba(121,192,255,.1); }
+
+/* ── Badges ── */
+.badge { display:inline-flex; align-items:center; padding:2px 7px; border-radius:4px; font-size:10px; font-weight:700; white-space:nowrap; }
+.b-ssh      { background:rgba(88,166,255,.15);  color:var(--accent); }
+.b-mongodb,.b-mongo { background:rgba(63,185,80,.15); color:var(--green); }
+.b-ldap     { background:rgba(255,166,87,.15);  color:var(--orange); }
+.b-redis    { background:rgba(248,81,73,.15);   color:var(--red); }
+.b-mysql    { background:rgba(210,153,34,.15);  color:var(--yellow); }
+.b-kerberos { background:rgba(188,140,255,.15); color:var(--purple); }
+.b-smb      { background:rgba(224,82,82,.2);    color:#e05252; }
+.b-rdp      { background:rgba(255,107,107,.15); color:#ff6b6b; }
+.b-mssql    { background:rgba(79,184,255,.15);  color:#4fb8ff; }
+.b-vnc      { background:rgba(192,132,252,.15); color:#c084fc; }
+.b-telnet   { background:rgba(210,153,34,.15);  color:var(--yellow); }
+.b-hl7      { background:rgba(255,166,87,.15);  color:var(--orange); }
+.b-smtp     { background:rgba(121,192,255,.15); color:#79c0ff; }
+.b-hi       { background:rgba(248,81,73,.2); color:var(--red); border:1px solid rgba(248,81,73,.3); }
+
+/* ── World map ── */
+#worldmap { display:block; width:100%; height:310px; cursor:crosshair; }
+.map-tip {
+  position:absolute; background:#1c2330; border:1px solid var(--border); border-radius:6px;
+  padding:6px 10px; font-size:11px; pointer-events:none; display:none; z-index:10; white-space:nowrap;
+}
+.map-wrap { position:relative; }
+
+/* ── SVG Chart areas ── */
+.chart-wrap { overflow:hidden; }
+
+/* ── Bar rows ── */
+.bar-row { display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid rgba(48,54,61,.4); }
+.bar-row:last-child { border-bottom:none; }
+.bar-lbl { width:160px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:11px; }
+.bar-trk { flex:1; background:rgba(255,255,255,.04); border-radius:3px; height:5px; overflow:hidden; }
+.bar-fill { height:100%; background:var(--fill,var(--accent)); border-radius:3px; transition:width .4s; }
+.bar-cnt { font-size:11px; color:var(--muted); min-width:28px; text-align:right; font-variant-numeric:tabular-nums; }
+
+/* ── Session tables ── */
+.tbl { width:100%; border-collapse:collapse; font-size:11px; }
+.tbl th { color:var(--muted); font-weight:600; text-align:left; padding:6px 10px; border-bottom:1px solid var(--border); white-space:nowrap; }
+.tbl td { padding:6px 10px; border-bottom:1px solid rgba(48,54,61,.3); vertical-align:middle; }
+.tbl tr:last-child td { border-bottom:none; }
+.tbl tr.hi-row { background:rgba(248,81,73,.04); }
+.tbl-wrap { overflow-x:auto; }
+
+/* ── High-interest cards ── */
+.hi-card { border:1px solid rgba(248,81,73,.2); border-radius:8px; margin:8px 14px; overflow:hidden; }
+.hi-hdr { display:flex; align-items:center; justify-content:space-between; padding:8px 12px; background:rgba(248,81,73,.05); cursor:pointer; gap:8px; }
+.hi-left { display:flex; align-items:center; gap:6px; flex-wrap:wrap; min-width:0; }
+.hi-right { display:flex; align-items:center; gap:8px; flex-shrink:0; }
+.hi-body { display:none; padding:10px 12px; background:var(--bg); font-size:11px; }
+.hi-body.open { display:block; }
+.hi-reason { font-size:10px; color:var(--yellow); font-style:italic; }
+.hi-meta-row { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:8px; }
+.cmd-log { background:#0a0d12; border-radius:6px; padding:8px; font-family:monospace; font-size:10px; color:var(--green); max-height:120px; overflow-y:auto; }
+.chev { color:var(--muted); transition:transform .2s; font-size:12px; }
+.chev.open { transform:rotate(180deg); }
+.score { display:inline-block; padding:1px 6px; border-radius:4px; font-size:10px; font-weight:700; }
+.mitre-tag { display:inline-flex; padding:2px 7px; border-radius:4px; margin:2px; background:rgba(188,140,255,.12); color:var(--purple); font-size:10px; font-weight:600; }
+
+/* ── Misc ── */
+.ip   { color:var(--accent); font-family:monospace; font-size:11px; }
+code  { background:var(--bg); padding:2px 5px; border-radius:3px; font-family:monospace; font-size:11px; color:var(--yellow); }
+.dim  { color:var(--muted); }
+.ts   { color:var(--muted); font-size:10px; font-family:monospace; }
+.section-divider { text-align:center; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.12em; color:var(--muted); padding:8px 0 14px; }
+.htab { background:none; border:none; border-bottom:2px solid transparent; color:var(--muted); padding:8px 14px; font-size:12px; cursor:pointer; font-family:inherit; }
+.htab.active { color:#e6edf3; border-bottom-color:#238636; }
+.htab:hover { color:#e6edf3; }
+#hunt-panel input:focus, #hunt-panel select:focus { outline:none; border-color:#58a6ff; }
+.combined-badge { font-size:9px; font-weight:700; padding:2px 6px; border-radius:4px; background:rgba(255,255,255,.06); color:var(--muted); margin-left:6px; letter-spacing:.05em; }
+</style>
+</head>
+<body>
+
+<!-- ══ HEADER ══ -->
+<div class="hdr">
+  <div class="hdr-left">
+    <div>
+      <div class="hdr-title">🍯🏥 Unified SOC Intelligence Dashboard</div>
+      <div class="hdr-sub">Meridian HR + Cascade Medical · Dual-Honeypot View</div>
+    </div>
+  </div>
+  <div class="hdr-right">
+    <div class="status-badge mer" id="mer-badge"><span class="dot"></span><span id="mer-txt">Meridian…</span></div>
+    <div class="status-badge cas" id="cas-badge"><span class="dot"></span><span id="cas-txt">Cascade…</span></div>
+    <span class="refresh-note" id="refresh-note"></span>
+  </div>
+</div>
+
+<div class="wrap">
+
+<!-- ══ MERIDIAN STAT CARDS ══ -->
+<div class="hp-section">
+  <div class="hp-label mer">🍯 Meridian HR Honeypot</div>
+  <div class="stats mer-border">
+    <div class="stat">   <div class="stat-lbl">Total Sessions</div>  <div class="stat-val" id="m-tot">—</div></div>
+    <div class="stat g"> <div class="stat-lbl">Auth Successes</div>  <div class="stat-val" id="m-aut">—</div></div>
+    <div class="stat r"> <div class="stat-lbl">High Interest</div>   <div class="stat-val" id="m-hi">—</div></div>
+    <div class="stat y"> <div class="stat-lbl">Cred Attempts</div>   <div class="stat-val" id="m-cr">—</div></div>
+    <div class="stat p"> <div class="stat-lbl">Commands Run</div>    <div class="stat-val" id="m-cm">—</div></div>
+    <div class="stat o"> <div class="stat-lbl">Unique IPs</div>      <div class="stat-val" id="m-ip">—</div></div>
+  </div>
+</div>
+
+<!-- ══ CASCADE STAT CARDS ══ -->
+<div class="hp-section">
+  <div class="hp-label cas">🏥 Cascade Medical EMR Honeypot</div>
+  <div class="stats cas-border">
+    <div class="stat">   <div class="stat-lbl">Total Sessions</div>  <div class="stat-val" id="c-tot">—</div></div>
+    <div class="stat g"> <div class="stat-lbl">Auth Successes</div>  <div class="stat-val" id="c-aut">—</div></div>
+    <div class="stat r"> <div class="stat-lbl">High Interest</div>   <div class="stat-val" id="c-hi">—</div></div>
+    <div class="stat y"> <div class="stat-lbl">Cred Attempts</div>   <div class="stat-val" id="c-cr">—</div></div>
+    <div class="stat p"> <div class="stat-lbl">Commands Run</div>    <div class="stat-val" id="c-cm">—</div></div>
+    <div class="stat o"> <div class="stat-lbl">Unique IPs</div>      <div class="stat-val" id="c-ip">—</div></div>
+  </div>
+</div>
+
+<!-- ══ COMBINED CHARTS ROW ══ -->
+<div class="g2">
+  <div class="panel">
+    <div class="ph">24H Attack Volume <span class="combined-badge">COMBINED</span>
+      <div style="display:flex;gap:10px;font-size:10px;font-weight:400;">
+        <span style="color:var(--mer)">● Meridian</span>
+        <span style="color:var(--cas)">● Cascade</span>
+      </div>
+    </div>
+    <div class="pb chart-wrap" id="chart-hourly-wrap"><div class="empty">Loading…</div></div>
+  </div>
+  <div class="panel">
+    <div class="ph">Service Breakdown <span class="combined-badge">COMBINED</span></div>
+    <div class="pb chart-wrap" id="chart-svc-wrap"><div class="empty">Loading…</div></div>
+    <div class="svc-pills" id="svc-pills"></div>
+  </div>
+</div>
+
+<!-- ══ WORLD HEATMAP ══ -->
+<div class="panel">
+  <div class="ph">World Attack Heatmap <span class="combined-badge">COMBINED</span>
+    <span style="font-size:10px;font-weight:400;color:var(--muted)">hover for details</span>
+  </div>
+  <div class="pb" style="padding:10px 14px 14px;">
+    <div class="map-wrap">
+      <canvas id="worldmap"></canvas>
+      <div class="map-tip" id="map-tip"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ COMBINED BOTTOM PANELS ══ -->
+<div class="g3">
+  <div class="panel" style="margin-bottom:0">
+    <div class="ph">Top Source Countries <span class="combined-badge">COMBINED</span></div>
+    <div class="pb" id="countries"><div class="empty">Loading…</div></div>
+  </div>
+  <div class="panel" style="margin-bottom:0">
+    <div class="ph">Top Credential Pairs <span class="combined-badge">COMBINED</span></div>
+    <div class="pb" style="padding:0 0 6px;">
+      <table class="tbl"><thead><tr><th>Username</th><th>Password</th><th style="text-align:right">#</th></tr></thead>
+        <tbody id="cred-tb"></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="panel" style="margin-bottom:0">
+    <div class="ph">Top ASNs / ISPs <span class="combined-badge">COMBINED</span></div>
+    <div class="pb" id="asns"><div class="empty">Loading…</div></div>
+  </div>
+</div>
+
+<div style="margin-bottom:16px"></div>
+
+<!-- ══ MITRE ATT&CK ══ -->
+<div class="panel">
+  <div class="ph">MITRE ATT&CK Techniques <span class="combined-badge">COMBINED</span></div>
+  <div class="pb" style="padding:0 0 6px;">
+    <table class="tbl"><thead><tr><th>Technique</th><th style="text-align:right">Count</th></tr></thead>
+      <tbody id="mitre-tb"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ══ HIGH-INTEREST SESSIONS SIDE BY SIDE ══ -->
+<div class="g2">
+  <div class="panel" style="margin-bottom:0">
+    <div class="ph">🍯 Meridian High-Interest <span class="ph-ct r" id="m-hi-ct">0</span></div>
+    <div class="pb" style="padding:8px 0;" id="m-hi-panel"><div class="empty">No high-interest sessions</div></div>
+  </div>
+  <div class="panel" style="margin-bottom:0">
+    <div class="ph">🏥 Cascade High-Interest <span class="ph-ct r" id="c-hi-ct">0</span></div>
+    <div class="pb" style="padding:8px 0;" id="c-hi-panel"><div class="empty">No high-interest sessions</div></div>
+  </div>
+</div>
+
+<div style="margin-bottom:16px"></div>
+
+<!-- ══ MERIDIAN SESSIONS TABLE ══ -->
+<div class="panel">
+  <div class="ph">🍯 Meridian HR Recent Sessions <span class="ph-ct mer" id="m-sess-ct">0</span></div>
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>Time</th><th>IP</th><th>Service</th><th>User</th><th>Country</th><th>Duration</th><th>Cmds</th><th>Score</th><th>Flags</th></tr></thead>
+      <tbody id="m-sess-tb"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ══ CASCADE SESSIONS TABLE ══ -->
+<div class="panel">
+  <div class="ph">🏥 Cascade Medical Recent Sessions <span class="ph-ct cas" id="c-sess-ct">0</span></div>
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>Time</th><th>IP</th><th>Service</th><th>User</th><th>Country</th><th>Duration</th><th>Cmds</th><th>Score</th><th>Flags</th></tr></thead>
+      <tbody id="c-sess-tb"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ══ THREAT HUNT PANEL ══ -->
+<div class="panel" id="hunt-panel">
+  <div class="ph">🔍 Threat Hunt <span class="ph-ct" id="hunt-ct" style="background:#30363d;color:#8b949e;">0</span></div>
+  <div style="padding:12px 16px 8px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;">
+    <div style="display:flex;flex-direction:column;gap:3px;">
+      <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">IP Address</label>
+      <input id="h-ip" type="text" placeholder="e.g. 118.194" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:5px 8px;border-radius:4px;font-size:12px;width:130px;font-family:inherit;">
+    </div>
+    <div style="display:flex;flex-direction:column;gap:3px;">
+      <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">Username</label>
+      <input id="h-user" type="text" placeholder="e.g. admin" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:5px 8px;border-radius:4px;font-size:12px;width:110px;font-family:inherit;">
+    </div>
+    <div style="display:flex;flex-direction:column;gap:3px;">
+      <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">Command / Keyword</label>
+      <input id="h-cmd" type="text" placeholder="e.g. wget, whoami, /etc/passwd" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:5px 8px;border-radius:4px;font-size:12px;width:200px;font-family:inherit;">
+    </div>
+    <div style="display:flex;flex-direction:column;gap:3px;">
+      <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">Service</label>
+      <select id="h-svc" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:5px 8px;border-radius:4px;font-size:12px;font-family:inherit;">
+        <option value="">All services</option>
+        <option>ssh</option><option>rdp</option><option>mssql</option><option>redis</option>
+        <option>mongodb</option><option>telnet</option><option>kerberos</option><option>ldap</option>
+        <option>hl7</option><option>smtp</option><option>vnc</option>
+      </select>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:3px;">
+      <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">Honeypot</label>
+      <select id="h-hp" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:5px 8px;border-radius:4px;font-size:12px;font-family:inherit;">
+        <option value="both">Both</option>
+        <option value="meridian">Meridian HR</option>
+        <option value="cascade">Cascade Medical</option>
+      </select>
+    </div>
+    <button onclick="runHunt()" style="background:#238636;border:none;color:#fff;padding:6px 16px;border-radius:4px;font-size:12px;cursor:pointer;font-family:inherit;height:29px;margin-top:18px;">Hunt</button>
+    <button onclick="clearHunt()" style="background:#21262d;border:1px solid #30363d;color:#8b949e;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;font-family:inherit;height:29px;margin-top:18px;">Clear</button>
+  </div>
+
+  <!-- Result tabs -->
+  <div style="display:flex;gap:0;padding:0 16px;border-bottom:1px solid #21262d;" id="hunt-tabs">
+    <button class="htab active" data-tab="sessions"    onclick="switchTab('sessions')"   >Sessions    <span id="ht-sess-n"  class="ph-ct" style="background:#30363d;color:#8b949e;margin-left:4px;">0</span></button>
+    <button class="htab"        data-tab="commands"    onclick="switchTab('commands')"   >Commands    <span id="ht-cmd-n"   class="ph-ct" style="background:#30363d;color:#8b949e;margin-left:4px;">0</span></button>
+    <button class="htab"        data-tab="credentials" onclick="switchTab('credentials')">Credentials <span id="ht-cred-n"  class="ph-ct" style="background:#30363d;color:#8b949e;margin-left:4px;">0</span></button>
+  </div>
+
+  <div id="hunt-results" style="min-height:60px;">
+    <div class="empty" style="padding:24px;" id="hunt-empty">Enter search terms above and click Hunt</div>
+
+    <div id="hunt-tab-sessions"    style="display:none;">
+      <div class="tbl-wrap"><table class="tbl">
+        <thead><tr><th>Time</th><th>HP</th><th>IP</th><th>Service</th><th>User</th><th>Password</th><th>Auth</th><th>Country</th><th>Cmds</th><th>Score</th></tr></thead>
+        <tbody id="hunt-sess-tb"></tbody>
+      </table></div>
+    </div>
+
+    <div id="hunt-tab-commands" style="display:none;">
+      <div class="tbl-wrap"><table class="tbl">
+        <thead><tr><th>Time</th><th>HP</th><th>IP</th><th>Service</th><th>Country</th><th>Command</th></tr></thead>
+        <tbody id="hunt-cmd-tb"></tbody>
+      </table></div>
+    </div>
+
+    <div id="hunt-tab-credentials" style="display:none;">
+      <div class="tbl-wrap"><table class="tbl">
+        <thead><tr><th>Time</th><th>HP</th><th>IP</th><th>Service</th><th>Username</th><th>Password</th></tr></thead>
+        <tbody id="hunt-cred-tb"></tbody>
+      </table></div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /wrap -->
+
+<script>
+/* ══════════════════════════════════════════
+   SOURCES
+══════════════════════════════════════════ */
+const MER_BASE = `http://${location.hostname}:8080`;
+const CAS_BASE = 'http://20.246.106.71:8080';
+
+/* ══════════════════════════════════════════
+   UTILITIES
+══════════════════════════════════════════ */
+function esc(s) { return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function fmt(n) { return Number(n??0).toLocaleString(); }
+function dur(s) {
+  if (!s) return '—'; s = Math.round(s);
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s/60) + 'm ' + (s%60) + 's';
+  return Math.floor(s/3600) + 'h ' + Math.floor((s%3600)/60) + 'm';
+}
+function fmtDT(ts) { return ts ? ts.substring(0,10) + ' ' + ts.substring(11,19) : '—'; }
+const FLAGS = {
+  'China':'🇨🇳','United States':'🇺🇸','Russia':'🇷🇺','Germany':'🇩🇪',
+  'Netherlands':'🇳🇱','The Netherlands':'🇳🇱','United Kingdom':'🇬🇧',
+  'Belgium':'🇧🇪','France':'🇫🇷','Brazil':'🇧🇷','India':'🇮🇳',
+  'Japan':'🇯🇵','South Korea':'🇰🇷','Canada':'🇨🇦','Australia':'🇦🇺',
+  'Singapore':'🇸🇬','Hong Kong':'🇭🇰','Taiwan':'🇹🇼','Iran':'🇮🇷',
+  'Turkey':'🇹🇷','Vietnam':'🇻🇳','Indonesia':'🇮🇩','Ukraine':'🇺🇦',
+  'Poland':'🇵🇱','Romania':'🇷🇴','Bulgaria':'🇧🇬','Sweden':'🇸🇪',
+  'Norway':'🇳🇴','Denmark':'🇩🇰','Finland':'🇫🇮','Italy':'🇮🇹',
+  'Spain':'🇪🇸','Portugal':'🇵🇹','Mexico':'🇲🇽','Argentina':'🇦🇷',
+  'Czech Republic':'🇨🇿','Austria':'🇦🇹','Switzerland':'🇨🇭',
+  'Pakistan':'🇵🇰','Thailand':'🇹🇭','Malaysia':'🇲🇾','Philippines':'🇵🇭',
+  'Egypt':'🇪🇬','Nigeria':'🇳🇬','South Africa':'🇿🇦','Israel':'🇮🇱',
+  'Saudi Arabia':'🇸🇦','United Arab Emirates':'🇦🇪',
+};
+function flag(c) { return FLAGS[c] || '🌍'; }
+function scoreBox(n) {
+  n = n || 1;
+  const c = n >= 4 ? 'var(--red)' : n >= 3 ? 'var(--orange)' : n >= 2 ? 'var(--yellow)' : 'var(--green)';
+  return `<span class="score" style="background:${c}22;color:${c};">${n}</span>`;
+}
+
+/* ══════════════════════════════════════════
+   SERVICE COLORS (both honeypots)
+══════════════════════════════════════════ */
+const SVC_COLORS = {
+  ssh:'#58a6ff', mongodb:'#3fb950', mongo:'#3fb950', ldap:'#ffa657',
+  redis:'#f85149', mysql:'#d29922', kerberos:'#bc8cff', smb:'#e05252',
+  rdp:'#ff6b6b', mssql:'#4fb8ff', vnc:'#c084fc', telnet:'#fbbf24',
+  hl7:'#fb923c', smtp:'#79c0ff',
+};
+function svcColor(s) { return SVC_COLORS[(s||'').toLowerCase()] || '#8b949e'; }
+function svcBadge(s) {
+  const k = (s||'ssh').toLowerCase();
+  return `<span class="badge b-${k}">${esc(k.toUpperCase())}</span>`;
+}
+
+/* ══════════════════════════════════════════
+   MERGE HELPERS
+══════════════════════════════════════════ */
+function mergeHourly(a, b) {
+  const map = {};
+  (a||[]).forEach(d => { if (!map[d.hour]) map[d.hour]={a:0,b:0}; map[d.hour].a += d.cnt; });
+  (b||[]).forEach(d => { if (!map[d.hour]) map[d.hour]={a:0,b:0}; map[d.hour].b += d.cnt; });
+  return Object.entries(map).sort(([x],[y]) => x.localeCompare(y))
+    .map(([hour, v]) => ({hour, a:v.a, b:v.b, total:v.a+v.b}));
+}
+function mergeByKey(a, b, key) {
+  const map = {};
+  (a||[]).forEach(d => { map[d[key]] = (map[d[key]]||0) + d.cnt; });
+  (b||[]).forEach(d => { map[d[key]] = (map[d[key]]||0) + d.cnt; });
+  return Object.entries(map).sort(([,x],[,y]) => y-x).map(([k, cnt]) => ({[key]:k, cnt}));
+}
+
+/* ══════════════════════════════════════════
+   STACKED BAR CHART (hourly)
+══════════════════════════════════════════ */
+function makeStackedBars(data) {
+  if (!data || !data.length) return '<div class="empty">No hourly data yet</div>';
+  const W=560, H=180, pL=34, pR=8, pT=18, pB=28;
+  const cW=W-pL-pR, cH=H-pT-pB;
+  const maxV = Math.max(...data.map(d => d.total), 1);
+  const bW = cW / data.length;
+
+  const ticks = 4;
+  let grid = '';
+  for (let i = 0; i <= ticks; i++) {
+    const v = Math.round(maxV * i / ticks);
+    const y = pT + cH - (i/ticks)*cH;
+    grid += `<line x1="${pL}" y1="${y}" x2="${W-pR}" y2="${y}" stroke="#21262d" stroke-width="1"/>`;
+    grid += `<text x="${pL-4}" y="${y+3.5}" text-anchor="end" font-size="9" fill="#8b949e">${v}</text>`;
+  }
+
+  let bars = '';
+  const labelStep = Math.ceil(data.length / 14);
+  data.forEach((d, i) => {
+    const x = pL + i * bW;
+    const bw = Math.max(bW - 2, 1);
+    const totalH = (d.total/maxV)*cH;
+    const aH = (d.a/maxV)*cH;
+    const bH = (d.b/maxV)*cH;
+    if (d.a > 0) {
+      bars += `<rect x="${(x+1).toFixed(1)}" y="${(pT+cH-aH).toFixed(1)}" width="${bw.toFixed(1)}" height="${aH.toFixed(1)}" fill="#58a6ff" rx="1" opacity="0.8"/>`;
+    }
+    if (d.b > 0) {
+      bars += `<rect x="${(x+1).toFixed(1)}" y="${(pT+cH-totalH).toFixed(1)}" width="${bw.toFixed(1)}" height="${bH.toFixed(1)}" fill="#fb923c" rx="1" opacity="0.8"/>`;
+    }
+    if (i % labelStep === 0) {
+      const hr = d.hour.length >= 16 ? d.hour.substring(11,16) : d.hour.substring(8,10);
+      bars += `<text x="${(x+bW/2).toFixed(1)}" y="${H-8}" text-anchor="middle" font-size="8" fill="#8b949e">${hr}</text>`;
+    }
+  });
+
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:200px;">${grid}${bars}</svg>`;
+}
+
+/* ══════════════════════════════════════════
+   DONUT CHART (services)
+══════════════════════════════════════════ */
+function makeDonut(data) {
+  if (!data || !data.length) return '<div class="empty">No service data yet</div>';
+  const r=52, cx=70, cy=70, C=2*Math.PI*r;
+  const total = data.reduce((s,d) => s+d.cnt, 0) || 1;
+  const colors = data.map(d => svcColor(d.service));
+  let offset = 0;
+  const circles = data.map((d,i) => {
+    const len = (d.cnt/total)*C;
+    const gap = data.length > 1 ? Math.min(3, len*0.05) : 0;
+    const c = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${colors[i]}" stroke-width="22"
+      stroke-dasharray="${(len-gap).toFixed(3)} ${(C-len+gap).toFixed(3)}"
+      stroke-dashoffset="${(C/4-offset).toFixed(3)}" opacity="0.9"/>`;
+    offset += len;
+    return c;
+  }).join('');
+
+  const legend = data.slice(0,8).map((d,i) =>
+    `<text x="148" y="${18+i*18}" font-size="10" fill="${colors[i]}" font-weight="600">■</text>
+     <text x="162" y="${18+i*18}" font-size="10" fill="#c9d1d9">${esc(d.service.toUpperCase())}</text>
+     <text x="248" y="${18+i*18}" font-size="10" fill="#8b949e" text-anchor="end">${d.cnt}</text>`
+  ).join('');
+
+  const totalTxt = `<text x="${cx}" y="${cy-6}" text-anchor="middle" font-size="9" fill="#8b949e">TOTAL</text>
+    <text x="${cx}" y="${cy+12}" text-anchor="middle" font-size="18" font-weight="800" fill="#c9d1d9">${fmt(total)}</text>`;
+
+  return `<svg viewBox="0 0 260 140" style="width:100%;height:160px;">
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#21262d" stroke-width="22"/>
+    ${circles}${totalTxt}${legend}</svg>`;
+}
+
+/* ══════════════════════════════════════════
+   WORLD MAP DATA
+══════════════════════════════════════════ */
+const LAND = [
+  '-168,72,-140,62,-130,54,-124,49,-118,33,-97,26,-84,30,-80,25,-66,45,-52,47,-60,44,-78,43,-82,46,-95,83,-168,72',
+  '-72,84,-20,84,-18,70,-38,60,-55,60,-65,65,-72,84',
+  '-80,8,-62,12,-50,0,-35,-5,-40,-22,-52,-33,-65,-55,-75,-18,-80,8',
+  '-10,36,2,43,8,44,14,38,18,40,22,41,28,42,36,38,42,36,50,22,57,22,62,23,68,23,72,8,80,8,80,28,90,22,100,8,104,1,108,5,115,5,122,8,128,15,135,30,138,35,142,46,145,56,160,60,168,64,170,72,140,75,100,75,60,72,35,70,30,70,28,72,15,70,5,62,-2,59,-8,52,-10,36',
+  '-17,16,-5,5,0,-5,12,-18,18,-35,32,-28,43,-12,51,12,42,12,34,26,24,32,10,37,5,5,-5,5,-17,16',
+  '15,-34,32,-22,40,-12,42,12,50,12,51,12,43,-12,32,-28,18,-35,25,-34,30,-30,32,-26,22,-34,15,-34',
+  '110,-8,115,-8,120,-8,125,-10,130,-8,135,-18,138,-26,148,-38,144,-38,140,-38,130,-22,120,-22,112,-22,108,-8,110,-8',
+  '165,-46,170,-46,178,-40,178,-36,174,-36,168,-46,165,-46',
+  '95,6,100,6,104,1,100,2,95,6',
+  '120,15,122,18,125,18,126,10,122,12,120,15',
+  '-76,18,-74,20,-72,18,-74,16,-76,18',
+  '-64,18,-62,18,-60,16,-62,14,-64,18',
+  '-58,6,-56,8,-52,6,-54,4,-58,6',
+  '43,12,44,14,48,12,46,10,43,12',
+  '100,3,103,3,104,1,102,1,100,3',
+  '122,10,126,10,128,8,124,8,122,10',
+  '140,35,142,38,145,38,144,34,140,35',
+  '128,26,130,28,132,26,130,24,128,26',
+];
+const CENTROIDS = {
+  'China':[104.2,35.9],'Russia':[100.3,61.5],'United States':[-95.7,37.1],
+  'Netherlands':[ 5.3,52.1],'The Netherlands':[5.3,52.1],'Belgium':[4.5,50.5],
+  'Germany':[10.4,51.2],'United Kingdom':[-3.4,55.4],'France':[2.3,46.2],
+  'Brazil':[-51.9,-14.2],'India':[78.9,20.6],'Japan':[138.3,36.6],
+  'South Korea':[127.8,36.5],'Canada':[-96.8,56.1],'Australia':[133.8,-25.3],
+  'Singapore':[103.8,1.4],'Hong Kong':[114.1,22.3],'Taiwan':[120.9,23.7],
+  'Iran':[53.7,32.4],'Turkey':[35.2,39.0],'Vietnam':[108.3,14.0],
+  'Indonesia':[113.9,-0.8],'Ukraine':[31.2,48.4],'Poland':[19.1,51.9],
+  'Romania':[24.9,45.9],'Bulgaria':[25.5,42.7],'Sweden':[18.6,60.1],
+  'Norway':[8.5,60.5],'Denmark':[10.0,56.3],'Finland':[25.7,64.9],
+  'Italy':[12.6,42.8],'Spain':[-3.7,40.2],'Portugal':[-8.2,39.4],
+  'Mexico':[-102.6,23.6],'Argentina':[-65.2,-34.6],'Czech Republic':[15.5,49.8],
+  'Austria':[14.1,47.6],'Switzerland':[8.2,46.8],'Pakistan':[69.3,30.4],
+  'Thailand':[100.9,15.9],'Malaysia':[109.7,4.2],'Philippines':[121.8,12.9],
+  'Egypt':[30.8,26.8],'Nigeria':[8.7,9.1],'South Africa':[25.1,-29.0],
+  'Israel':[34.9,31.5],'Saudi Arabia':[45.1,24.7],'United Arab Emirates':[53.8,23.4],
+  'Colombia':[-74.3,4.6],'Peru':[-75.0,-9.2],'Chile':[-70.7,-30.0],
+  'Sweden':[18.6,60.1],'Morocco':[-7.1,31.8],'Algeria':[1.7,28.0],
+  'Libya':[17.2,27.0],'Iraq':[44.4,33.2],'Syria':[38.0,35.0],
+  'Kazakhstan':[66.9,48.0],'Uzbekistan':[63.2,41.4],'Bangladesh':[90.4,23.7],
+  'Myanmar':[95.9,19.2],'Cambodia':[104.9,12.6],'Sri Lanka':[80.7,7.9],
+  'Nepal':[84.1,28.4],'Ethiopia':[40.5,9.1],'Kenya':[37.9,-0.2],
+  'Tanzania':[34.9,-6.4],'Ghana':[(-1.0),-1.0],'Ghana':[-1.0,7.9],
+  'Senegal':[-14.5,14.5],'Cameroon':[12.4,5.7],'Angola':[17.9,-11.2],
+  'Mozambique':[35.5,-18.7],'Madagascar':[46.9,-19.4],'New Zealand':[174.9,-41.3],
+  'Papua New Guinea':[144.7,-6.3],'Sweden':[18.6,60.1],'Lithuania':[23.9,55.9],
+  'Latvia':[24.6,56.9],'Estonia':[24.8,58.7],'Belarus':[28.0,53.7],
+  'Moldova':[28.4,46.8],'Serbia':[21.0,44.0],'Croatia':[15.2,45.1],
+};
+
+let mapHits = [];
+
+function drawWorldMap(countryData) {
+  const canvas = document.getElementById('worldmap');
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.clientWidth || canvas.offsetWidth || 560;
+  const cssH = canvas.clientHeight || canvas.offsetHeight || 310;
+  canvas.width  = cssW * dpr;
+  canvas.height = cssH * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const W = cssW, H = cssH;
+  const proj = (lon, lat) => [(lon+180)/360*W, (83-lat)/166*H];
+
+  ctx.fillStyle = '#080d14';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.strokeStyle = '#12181f'; ctx.lineWidth = 0.5;
+  for (let lon = -180; lon <= 180; lon += 30) {
+    const [x] = proj(lon, 0);
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  for (let lat = -60; lat <= 60; lat += 30) {
+    const [, y] = proj(0, lat);
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  LAND.forEach(str => {
+    const nums = str.split(',').map(Number);
+    ctx.beginPath();
+    for (let i = 0; i < nums.length - 1; i += 2) {
+      const [x, y] = proj(nums[i], nums[i+1]);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = '#1a2332'; ctx.fill();
+    ctx.strokeStyle = '#263347'; ctx.lineWidth = 0.6; ctx.stroke();
+  });
+
+  const atk = {}; let maxA = 1;
+  (countryData||[]).forEach(c => { atk[c.country] = (atk[c.country]||0) + c.cnt; if (atk[c.country] > maxA) maxA = atk[c.country]; });
+
+  const atkColor = cnt => {
+    const t = Math.pow(cnt/maxA, 0.4);
+    return [Math.round(88+t*(248-88)), Math.round(166+t*(81-166)), Math.round(255+t*(73-255))];
+  };
+
+  mapHits = [];
+  Object.entries(atk).forEach(([country, cnt]) => {
+    const coord = CENTROIDS[country];
+    if (!coord) return;
+    const [px, py] = proj(coord[0], coord[1]);
+    const [r, g, b] = atkColor(cnt);
+    const rad = 5 + Math.sqrt(cnt/maxA) * 16;
+    const grd = ctx.createRadialGradient(px, py, 0, px, py, rad*1.8);
+    grd.addColorStop(0, `rgba(${r},${g},${b},0.35)`);
+    grd.addColorStop(1, `rgba(${r},${g},${b},0)`);
+    ctx.beginPath(); ctx.arc(px, py, rad*1.8, 0, Math.PI*2);
+    ctx.fillStyle = grd; ctx.fill();
+    ctx.beginPath(); ctx.arc(px, py, rad, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(${r},${g},${b},0.85)`; ctx.fill();
+    ctx.beginPath(); ctx.arc(px, py, rad*0.4, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(255,255,255,0.7)`; ctx.fill();
+    mapHits.push({name: country, cnt, px, py, rad: rad*1.2});
+  });
+
+  // Legend
+  const lx = 14, ly = H - 22, lw = 110, lh = 7;
+  const lgrd = ctx.createLinearGradient(lx, 0, lx+lw, 0);
+  lgrd.addColorStop(0, 'rgba(88,166,255,0.8)');
+  lgrd.addColorStop(0.5, 'rgba(255,140,50,0.8)');
+  lgrd.addColorStop(1, 'rgba(248,81,73,0.8)');
+  ctx.fillStyle = lgrd;
+  ctx.beginPath(); ctx.roundRect(lx, ly, lw, lh, 3); ctx.fill();
+  ctx.fillStyle = '#8b949e'; ctx.font = '9px sans-serif';
+  ctx.fillText('Low', lx, ly-3);
+  ctx.textAlign = 'right'; ctx.fillText('High', lx+lw, ly-3); ctx.textAlign = 'left';
+}
+
+/* ══════════════════════════════════════════
+   RENDER FUNCTIONS
+══════════════════════════════════════════ */
+function renderStats(s, prefix) {
+  if (!s) return;
+  document.getElementById(prefix+'-tot').textContent = fmt(s.total_sessions);
+  document.getElementById(prefix+'-aut').textContent = fmt(s.authenticated_sessions);
+  document.getElementById(prefix+'-hi').textContent  = fmt(s.high_interest_sessions);
+  document.getElementById(prefix+'-cr').textContent  = fmt(s.credential_attempts);
+  document.getElementById(prefix+'-cm').textContent  = fmt(s.total_commands);
+  document.getElementById(prefix+'-ip').textContent  = fmt(s.unique_ips);
+}
+
+function renderHourly(mer, cas) {
+  const data = mergeHourly(mer, cas);
+  document.getElementById('chart-hourly-wrap').innerHTML = makeStackedBars(data);
+}
+
+function renderServices(mer, cas) {
+  const data = mergeByKey(mer, cas, 'service');
+  document.getElementById('chart-svc-wrap').innerHTML = makeDonut(data);
+  document.getElementById('svc-pills').innerHTML = data.map(d =>
+    `<span class="pill p-${esc(d.service.toLowerCase())}">${esc(d.service.toUpperCase())} <strong>${d.cnt}</strong></span>`
+  ).join('');
+}
+
+function renderCountries(mer, cas) {
+  const data = mergeByKey(mer, cas, 'country');
+  const el = document.getElementById('countries');
+  if (!data.length) { el.innerHTML = '<div class="empty">No country data yet</div>'; return; }
+  const max = data[0].cnt || 1;
+  el.innerHTML = data.slice(0, 12).map(c =>
+    `<div class="bar-row">
+       <div class="bar-lbl">${flag(c.country)} ${esc(c.country||'Unknown')}</div>
+       <div class="bar-trk"><div class="bar-fill" style="width:${(c.cnt/max*100).toFixed(1)}%"></div></div>
+       <div class="bar-cnt">${c.cnt}</div>
+     </div>`
+  ).join('');
+  requestAnimationFrame(() => drawWorldMap(data));
+}
+
+function renderAsns(mer, cas) {
+  const data = mergeByKey([...(mer||[])].map(d => ({...d, key: d.asn})), [...(cas||[])].map(d => ({...d, key: d.asn})), 'asn');
+  const el = document.getElementById('asns');
+  if (!data.length) { el.innerHTML = '<div class="empty">No ASN data yet</div>'; return; }
+  const max = data[0].cnt || 1;
+  el.innerHTML = data.slice(0, 10).map(a =>
+    `<div class="bar-row">
+       <div class="bar-lbl">${esc(a.asn||'Unknown')}</div>
+       <div class="bar-trk"><div class="bar-fill" style="width:${(a.cnt/max*100).toFixed(1)}%;--fill:var(--purple)"></div></div>
+       <div class="bar-cnt">${a.cnt}</div>
+     </div>`
+  ).join('');
+}
+
+function renderCredentials(mer, cas) {
+  const map = {};
+  const key = d => `${d.username||''}::${d.password||''}`;
+  (mer||[]).forEach(d => { const k=key(d); map[k]={username:d.username,password:d.password,cnt:(map[k]?.cnt||0)+d.cnt}; });
+  (cas||[]).forEach(d => { const k=key(d); map[k]={username:d.username,password:d.password,cnt:(map[k]?.cnt||0)+d.cnt}; });
+  const data = Object.values(map).sort((a,b) => b.cnt-a.cnt);
+  const tb = document.getElementById('cred-tb');
+  if (!data.length) { tb.innerHTML = '<tr><td class="empty" colspan="3">No credential data</td></tr>'; return; }
+  tb.innerHTML = data.slice(0,15).map(d =>
+    `<tr>
+       <td><code>${esc(d.username||'—')}</code></td>
+       <td><code>${esc(d.password||'—')}</code></td>
+       <td style="text-align:right;color:var(--accent)">${d.cnt}</td>
+     </tr>`
+  ).join('');
+}
+
+function renderMitre(mer, cas) {
+  const map = {};
+  (mer||[]).forEach(t => { map[t.technique_id]={technique_id:t.technique_id,technique_name:t.technique_name,count:(map[t.technique_id]?.count||0)+t.count}; });
+  (cas||[]).forEach(t => { map[t.technique_id]={technique_id:t.technique_id,technique_name:t.technique_name,count:(map[t.technique_id]?.count||0)+t.count}; });
+  const data = Object.values(map).sort((a,b) => b.count-a.count);
+  const tb = document.getElementById('mitre-tb');
+  if (!data.length) {
+    tb.innerHTML = '<tr><td class="empty" colspan="2" style="padding:24px 12px;font-size:11px;">No techniques mapped yet</td></tr>'; return;
+  }
+  tb.innerHTML = data.slice(0,12).map(t =>
+    `<tr>
+       <td><span class="mitre-tag">${esc(t.technique_id)}</span> ${esc(t.technique_name)}</td>
+       <td style="text-align:right;color:var(--purple)">${t.count}</td>
+     </tr>`
+  ).join('');
+}
+
+function renderHighInterest(data, elId, ctId, prefix) {
+  const el = document.getElementById(elId);
+  document.getElementById(ctId).textContent = data ? data.length : 0;
+  if (!data || !data.length) { el.innerHTML = '<div class="empty">No high-interest sessions</div>'; return; }
+  el.innerHTML = data.slice(0,5).map((s, i) => {
+    const id = `${prefix}-hi-${i}`;
+    const mitres = (() => { try { return JSON.parse(s.mitre_techniques||'[]'); } catch { return []; } })();
+    const cmds = s.commands ? s.commands.split(' | ').filter(Boolean) : [];
+    return `<div class="hi-card">
+      <div class="hi-hdr" onclick="document.getElementById('${id}').classList.toggle('open');this.querySelector('.chev').classList.toggle('open')">
+        <div class="hi-left">
+          <span class="badge b-hi">HI</span>
+          <span class="ip">${esc(s.peer_ip)}</span>
+          ${svcBadge(s.service)}
+          <span class="dim">${flag(s.country||'')} ${esc(s.country||'?')}</span>
+          <span class="hi-reason">${esc(s.high_interest_reason||'')}</span>
+        </div>
+        <div class="hi-right">
+          <span class="dim" style="font-size:10px">${dur(s.duration_seconds)} · ${s.command_count||0} cmds</span>
+          <span class="chev">▾</span>
+        </div>
+      </div>
+      <div class="hi-body" id="${id}">
+        <div class="hi-meta-row">
+          <span><span class="dim">IP:</span> <span class="ip">${esc(s.peer_ip)}</span></span>
+          <span><span class="dim">ISP:</span> ${esc(s.isp||'?')}</span>
+          <span><span class="dim">Score:</span> ${scoreBox(s.sophistication_score)}</span>
+          <span><span class="dim">Time:</span> ${esc(fmtDT(s.connect_time))}</span>
+        </div>
+        ${mitres.length ? `<div style="margin-bottom:6px">${mitres.map(t=>`<span class="mitre-tag">${esc(t.technique_id)}</span>`).join('')}</div>` : ''}
+        ${cmds.length ? `<div class="cmd-log">${cmds.map(c=>`<div>$ ${esc(c)}</div>`).join('')}</div>` : '<div class="dim" style="font-size:11px">No commands recorded</div>'}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderSessions(data, tbId, ctId) {
+  const tb = document.getElementById(tbId);
+  document.getElementById(ctId).textContent = data ? data.length : 0;
+  if (!data || !data.length) { tb.innerHTML = '<tr><td class="empty" colspan="9">No sessions yet</td></tr>'; return; }
+  tb.innerHTML = data.slice(0,25).map(s => {
+    const badges = [
+      s.high_interest ? '<span class="badge b-hi" style="font-size:9px">HI</span>' : '',
+      s.auth_success  ? '<span style="font-size:10px;color:var(--green)">✓AUTH</span>' : '',
+    ].filter(Boolean).join(' ');
+    return `<tr${s.high_interest?' class="hi-row"':''}>
+      <td><span class="ts">${esc(fmtDT(s.connect_time))}</span></td>
+      <td><span class="ip">${esc(s.peer_ip)}</span></td>
+      <td>${svcBadge(s.service)}</td>
+      <td>${s.username?`<code>${esc(s.username)}</code>`:'<span class="dim">—</span>'}</td>
+      <td>${s.country?`${flag(s.country)} <span style="font-size:11px">${esc(s.country)}</span>`:'<span class="dim">—</span>'}</td>
+      <td class="dim">${dur(s.duration_seconds)}</td>
+      <td style="text-align:right" class="dim">${s.command_count||0}</td>
+      <td>${scoreBox(s.sophistication_score)}</td>
+      <td>${badges||'<span class="dim">—</span>'}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* ══════════════════════════════════════════
+   STATUS HELPERS
+══════════════════════════════════════════ */
+function setMerStatus(txt, state) {
+  const el = document.getElementById('mer-badge');
+  el.className = 'status-badge mer' + (state ? ' ' + state : '');
+  document.getElementById('mer-txt').textContent = txt;
+}
+function setCasStatus(txt, state) {
+  const el = document.getElementById('cas-badge');
+  el.className = 'status-badge cas' + (state ? ' ' + state : '');
+  document.getElementById('cas-txt').textContent = txt;
+}
+
+/* ══════════════════════════════════════════
+   MAP TOOLTIP
+══════════════════════════════════════════ */
+function initMapTooltip() {
+  const canvas = document.getElementById('worldmap');
+  const tip    = document.getElementById('map-tip');
+  if (!canvas || !tip) return;
+  canvas.addEventListener('mousemove', e => {
+    const r = canvas.getBoundingClientRect();
+    const mx = (e.clientX - r.left);
+    const my = (e.clientY - r.top);
+    const hit = mapHits.find(h => Math.hypot(h.px - mx, h.py - my) <= h.rad + 4);
+    if (hit) {
+      tip.style.display = 'block';
+      tip.style.left = Math.min(mx + 14, r.width - 180) + 'px';
+      tip.style.top  = Math.max(my - 38, 4) + 'px';
+      tip.innerHTML  = `<strong style="color:var(--text)">${esc(hit.name)}</strong>`
+                     + ` <span class="dim">·</span> `
+                     + `<span style="color:var(--red);font-weight:700">${hit.cnt}</span>`
+                     + ` <span class="dim">attack${hit.cnt!==1?'s':''}</span>`;
+    } else {
+      tip.style.display = 'none';
+    }
+  });
+  canvas.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+}
+
+/* ══════════════════════════════════════════
+   FETCH HELPER
+══════════════════════════════════════════ */
+const get = (base, path) => fetch(base + path)
+  .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+  .catch(() => null);
+
+/* ══════════════════════════════════════════
+   DATA REFRESH
+══════════════════════════════════════════ */
+async function refresh() {
+  const [
+    mStats, mSessions, mCountries, mCreds, mMitre, mHi, mServices, mHourly, mAsns,
+    cStats, cSessions, cCountries, cCreds, cMitre, cHi, cServices, cHourly, cAsns,
+  ] = await Promise.all([
+    get(MER_BASE,'/api/stats'), get(MER_BASE,'/api/sessions?limit=30'), get(MER_BASE,'/api/countries'),
+    get(MER_BASE,'/api/credentials'), get(MER_BASE,'/api/mitre'), get(MER_BASE,'/api/high-interest'),
+    get(MER_BASE,'/api/services'), get(MER_BASE,'/api/hourly'), get(MER_BASE,'/api/asns'),
+    get(CAS_BASE,'/api/stats'), get(CAS_BASE,'/api/sessions?limit=30'), get(CAS_BASE,'/api/countries'),
+    get(CAS_BASE,'/api/credentials'), get(CAS_BASE,'/api/mitre'), get(CAS_BASE,'/api/high-interest'),
+    get(CAS_BASE,'/api/services'), get(CAS_BASE,'/api/hourly'), get(CAS_BASE,'/api/asns'),
+  ]);
+
+  // Stats
+  try { renderStats(mStats, 'm'); } catch(e) { console.error('mStats:', e); }
+  try { renderStats(cStats, 'c'); } catch(e) { console.error('cStats:', e); }
+
+  // Combined charts
+  try { renderHourly(mHourly, cHourly); } catch(e) { console.error('hourly:', e); }
+  try { renderServices(mServices, cServices); } catch(e) { console.error('services:', e); }
+  try { renderCountries(mCountries, cCountries); } catch(e) { console.error('countries:', e); }
+  try { renderAsns(mAsns, cAsns); } catch(e) { console.error('asns:', e); }
+  try { renderCredentials(mCreds, cCreds); } catch(e) { console.error('creds:', e); }
+  try { renderMitre(mMitre, cMitre); } catch(e) { console.error('mitre:', e); }
+
+  // Separate high-interest
+  try { renderHighInterest(mHi, 'm-hi-panel', 'm-hi-ct', 'm'); } catch(e) { console.error('mHi:', e); }
+  try { renderHighInterest(cHi, 'c-hi-panel', 'c-hi-ct', 'c'); } catch(e) { console.error('cHi:', e); }
+
+  // Separate session tables
+  try { renderSessions(mSessions, 'm-sess-tb', 'm-sess-ct'); } catch(e) { console.error('mSess:', e); }
+  try { renderSessions(cSessions, 'c-sess-tb', 'c-sess-ct'); } catch(e) { console.error('cSess:', e); }
+
+  // Status badges
+  const t = new Date().toLocaleTimeString();
+  setMerStatus(mStats ? `Meridian · ${t}` : 'Meridian · unreachable', mStats ? '' : 'error');
+  setCasStatus(cStats ? `Cascade · ${t}` : 'Cascade · unreachable', cStats ? '' : 'error');
+  document.getElementById('refresh-note').textContent = 'Auto-refresh 15s';
+}
+
+/* ══════════════════════════════════════════
+   THREAT HUNT
+══════════════════════════════════════════ */
+let huntActiveTab = 'sessions';
+let huntResults = { meridian: null, cascade: null };
+
+function switchTab(tab) {
+  huntActiveTab = tab;
+  document.querySelectorAll('.htab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  ['sessions','commands','credentials'].forEach(t => {
+    document.getElementById(`hunt-tab-${t}`).style.display = t === tab ? 'block' : 'none';
+  });
+}
+
+async function runHunt() {
+  const ip  = document.getElementById('h-ip').value.trim();
+  const usr = document.getElementById('h-user').value.trim();
+  const cmd = document.getElementById('h-cmd').value.trim();
+  const svc = document.getElementById('h-svc').value;
+  const hp  = document.getElementById('h-hp').value;
+
+  if (!ip && !usr && !cmd && !svc) { alert('Enter at least one search term'); return; }
+
+  document.getElementById('hunt-empty').textContent = 'Searching…';
+  document.getElementById('hunt-empty').style.display = 'block';
+  ['sessions','commands','credentials'].forEach(t =>
+    document.getElementById(`hunt-tab-${t}`).style.display = 'none');
+
+  const qs = new URLSearchParams();
+  if (ip)  qs.set('ip', ip);
+  if (usr) qs.set('username', usr);
+  if (cmd) qs.set('command', cmd);
+  if (svc) qs.set('service', svc);
+  qs.set('limit', '200');
+
+  const fetches = [];
+  if (hp !== 'cascade')  fetches.push(get(MER_BASE, `/api/search?${qs}`).then(r => ['MeridianHR', r]));
+  if (hp !== 'meridian') fetches.push(get(CAS_BASE, `/api/search?${qs}`).then(r => ['CascadeMedical', r]));
+
+  const results = await Promise.all(fetches);
+
+  let allSessions = [], allCmds = [], allCreds = [];
+  results.forEach(([hpName, data]) => {
+    if (!data) return;
+    data.sessions.forEach(s => { s._hp = hpName; allSessions.push(s); });
+    data.commands.forEach(c => { c._hp = hpName; allCmds.push(c); });
+    data.credentials.forEach(c => { c._hp = hpName; allCreds.push(c); });
+  });
+
+  allSessions.sort((a,b) => b.connect_time > a.connect_time ? 1 : -1);
+  allCmds.sort((a,b) => b.timestamp > a.timestamp ? 1 : -1);
+  allCreds.sort((a,b) => b.timestamp > a.timestamp ? 1 : -1);
+
+  const total = allSessions.length + allCmds.length + allCreds.length;
+  document.getElementById('hunt-ct').textContent = total;
+  document.getElementById('hunt-ct').style.background = total ? '#238636' : '#30363d';
+  document.getElementById('hunt-ct').style.color = total ? '#fff' : '#8b949e';
+  document.getElementById('ht-sess-n').textContent  = allSessions.length;
+  document.getElementById('ht-cmd-n').textContent   = allCmds.length;
+  document.getElementById('ht-cred-n').textContent  = allCreds.length;
+
+  // Sessions table
+  const ssTb = document.getElementById('hunt-sess-tb');
+  ssTb.innerHTML = allSessions.length ? allSessions.map(s => {
+    const hpBadge = s._hp === 'MeridianHR'
+      ? '<span style="color:var(--mer);font-weight:600;">MER</span>'
+      : '<span style="color:var(--cas);font-weight:600;">CAS</span>';
+    const authBadge = s.auth_success
+      ? '<span style="color:#3fb950;font-weight:600;">✓</span>'
+      : '<span style="color:#6e7681;">✗</span>';
+    const hiFlag = s.high_interest ? '🔴 ' : '';
+    return `<tr>
+      <td style="white-space:nowrap;font-size:11px;">${(s.connect_time||'').slice(0,16)}</td>
+      <td>${hpBadge}</td>
+      <td style="font-family:monospace;font-size:11px;">${s.peer_ip||''}</td>
+      <td><span class="p-${s.service||''}">${s.service||''}</span></td>
+      <td style="font-family:monospace;font-size:11px;">${s.username||'—'}</td>
+      <td style="font-family:monospace;font-size:11px;">${s.password||'—'}</td>
+      <td>${authBadge}</td>
+      <td style="font-size:11px;">${s.country||'—'}</td>
+      <td>${s.command_count||0}</td>
+      <td>${s.sophistication_score||1}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:16px;">No sessions matched</td></tr>';
+
+  // Commands table
+  const cmdTb = document.getElementById('hunt-cmd-tb');
+  cmdTb.innerHTML = allCmds.length ? allCmds.map(c => {
+    const hpBadge = c._hp === 'MeridianHR'
+      ? '<span style="color:var(--mer);font-weight:600;">MER</span>'
+      : '<span style="color:var(--cas);font-weight:600;">CAS</span>';
+    const highlighted = cmd
+      ? (c.command||'').replace(new RegExp(`(${cmd.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`, 'gi'),
+          '<mark style="background:#d29922;color:#0d1117;border-radius:2px;">$1</mark>')
+      : (c.command||'');
+    return `<tr>
+      <td style="white-space:nowrap;font-size:11px;">${(c.timestamp||'').slice(0,16)}</td>
+      <td>${hpBadge}</td>
+      <td style="font-family:monospace;font-size:11px;">${c.peer_ip||''}</td>
+      <td><span class="p-${c.service||''}">${c.service||''}</span></td>
+      <td style="font-size:11px;">${c.country||'—'}</td>
+      <td style="font-family:monospace;font-size:11px;max-width:400px;overflow:hidden;text-overflow:ellipsis;">${highlighted}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:16px;">No commands matched</td></tr>';
+
+  // Credentials table
+  const credTb = document.getElementById('hunt-cred-tb');
+  credTb.innerHTML = allCreds.length ? allCreds.map(c => {
+    const hpBadge = c._hp === 'MeridianHR'
+      ? '<span style="color:var(--mer);font-weight:600;">MER</span>'
+      : '<span style="color:var(--cas);font-weight:600;">CAS</span>';
+    return `<tr>
+      <td style="white-space:nowrap;font-size:11px;">${(c.timestamp||'').slice(0,16)}</td>
+      <td>${hpBadge}</td>
+      <td style="font-family:monospace;font-size:11px;">${c.peer_ip||''}</td>
+      <td><span class="p-${c.service||''}">${c.service||''}</span></td>
+      <td style="font-family:monospace;font-size:11px;">${c.username||'—'}</td>
+      <td style="font-family:monospace;font-size:11px;">${c.password||'—'}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:16px;">No credentials matched</td></tr>';
+
+  document.getElementById('hunt-empty').style.display = 'none';
+  switchTab(huntActiveTab);
+}
+
+function clearHunt() {
+  ['h-ip','h-user','h-cmd'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('h-svc').value = '';
+  document.getElementById('h-hp').value = 'both';
+  document.getElementById('hunt-ct').textContent = '0';
+  document.getElementById('hunt-ct').style.background = '#30363d';
+  document.getElementById('hunt-ct').style.color = '#8b949e';
+  ['ht-sess-n','ht-cmd-n','ht-cred-n'].forEach(id => document.getElementById(id).textContent = '0');
+  ['sessions','commands','credentials'].forEach(t =>
+    document.getElementById(`hunt-tab-${t}`).style.display = 'none');
+  document.getElementById('hunt-empty').textContent = 'Enter search terms above and click Hunt';
+  document.getElementById('hunt-empty').style.display = 'block';
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && document.activeElement &&
+      document.activeElement.closest('#hunt-panel')) runHunt();
+});
+
+/* ══════════════════════════════════════════
+   BOOT
+══════════════════════════════════════════ */
+refresh().catch(err => {
+  console.error('Boot error:', err);
+  setMerStatus('Boot error', 'error');
+  setCasStatus('Boot error', 'error');
+});
+setInterval(refresh, 15000);
+initMapTooltip();
+</script>
+</body>
+</html>

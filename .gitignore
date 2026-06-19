@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Data & logs (never commit real honeypot data)
+data/
+logs/
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+*.jsonl
+
+# OS
+.DS_Store
+Thumbs.db
+
+# SSH keys
+*.pem
+*.key
+id_rsa
+id_ed25519
+
+# IDE
+.vscode/
+.idea/
+
+# Node
+node_modules/
