@@ -1,4 +1,4 @@
-# 🍯 Log(n) Pacific Cyber Range
+# 🍯 Healthccare Enterprise Honeynet
 
 **A production-grade two-node honeypot deployment for threat hunting, SOC training, and attacker behavior research.**
 
@@ -13,12 +13,12 @@ Built and maintained by [Jenna Frank](https://github.com/jennafrank) using [Clau
 
 ## What Is This?
 
-The Log(n) Pacific Cyber Range is a realistic multi-service honeypot environment that mimics two organizations in a healthcare network:
+The Healthccare Enterprise Honeynet is a realistic multi-service honeypot environment that mimics two organizations in a healthcare network:
 
-| Node | Identity | Services |
-|------|----------|----------|
-| **Meridian HR** | A fictional HR software company | SSH, Redis, MongoDB, MySQL, Kerberos, LDAP, SMB |
-| **Cascade Medical EMR** | A fictional hospital EMR system | RDP, MSSQL, VNC, Telnet, SSH, HL7, SMTP |
+| Node                    | Identity                        | Services                                        |
+|-------------------------|---------------------------------|-------------------------------------------------|
+| **Meridian HR**         | A fictional HR software company | SSH, Redis, MongoDB, MySQL, Kerberos, LDAP, SMB |
+| **Cascade Medical EMR** | A fictional hospital EMR system | RDP, MSSQL, VNC, Telnet, SSH, HL7, SMTP         |
 
 Every attacker who touches either system is logged, enriched with threat intelligence, scored for sophistication, and surfaced in a real-time SOC dashboard. The two nodes are networked to attract — and detect — lateral movement between them.
 
@@ -28,12 +28,12 @@ Every attacker who touches either system is logged, enriched with threat intelli
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                     Log(n) Pacific Cyber Range                       │
-│                        Azure East US 2                               │
+│           Healthccare Enterprise Honeynet Cyber Range               │
+│                        Azure East US 2                              │
 ├──────────────────────────────┬──────────────────────────────────────┤
 │   Meridian HR Node           │   Cascade Medical Node               │
 │   20.242.13.15               │   20.246.106.71                      │
-│                              │                                       │
+│                              │                                      │
 │   SSH     :22                │   RDP      :3389                     │
 │   Redis   :6379              │   MSSQL    :1433                     │
 │   MongoDB :27017             │   VNC      :5900                     │
@@ -41,9 +41,9 @@ Every attacker who touches either system is logged, enriched with threat intelli
 │   Kerberos:88                │   SSH      :22                       │
 │   LDAP    :389/636           │   HL7      :2575                     │
 │   SMB     :445               │   SMTP     :25                       │
-│                              │                                       │
+│                              │                                      │
 │   Dashboard  :8080           │   Dashboard  :8080                   │
-│   Unified    :9090 ──────────┼──► (pulls from both)                │
+│   Unified    :9090 ──────────┼──► (pulls from both)                 │
 └──────────────────────────────┴──────────────────────────────────────┘
                                         │
                                SQLite per node
@@ -108,26 +108,26 @@ The unified dashboard runs as a second Flask app on port 9090 of the Meridian no
 ## Services Covered
 
 ### Meridian HR (Corporate HR System)
-| Service | Port | What Attackers Do |
-|---------|------|-------------------|
-| SSH | 22 | Brute force, shell access, command execution |
-| Redis | 6379 | KEYS enumeration, config tampering, replication hijack |
-| MongoDB | 27017 | Collection dumps, user enumeration, db drop attempts |
-| MySQL | 3306 | SELECT * dumps, credential brute force |
-| Kerberos | 88 | AS-REP roasting, TGS-REQ (Kerberoasting) |
-| LDAP | 389/636 | Directory enumeration, user/group listing |
-| SMB | 445 | Share enumeration, pass-the-hash attempts |
+| Service | Port   | What Attackers Do |
+|---------|--------|--------------------------------------------------------|
+| SSH     |    22  | Brute force, shell access, command execution           |
+| Redis   |  6379  | KEYS enumeration, config tampering, replication hijack |
+| MongoDB | 27017  | Collection dumps, user enumeration, db drop attempts   |
+| MySQL   |  3306  | SELECT * dumps, credential brute force                 |
+| Kerberos|    88  | AS-REP roasting, TGS-REQ (Kerberoasting)               |
+| LDAP    |389/636 | Directory enumeration, user/group listing              |
+| SMB     |   445  | Share enumeration, pass-the-hash attempts              |
 
 ### Cascade Medical EMR (Hospital System)
 | Service | Port | What Attackers Do |
-|---------|------|-------------------|
-| RDP | 3389 | Credential spray, session hijacking |
-| MSSQL | 1433 | xp_cmdshell, SA brute force, data dumps |
-| VNC | 5900 | Password spray, screen capture attempts |
-| Telnet | 23 | Default credential stuffing |
-| SSH | 22 | Brute force, lateral movement pivot |
-| HL7 | 2575 | Patient record enumeration, ADT message probing |
-| SMTP | 25 | Open relay testing, address enumeration |
+|---------|------|-------------------|-----------------------------|
+| RDP     | 3389 | Credential spray, session hijacking             |
+| MSSQL   | 1433 | xp_cmdshell, SA brute force, data dumps         |
+| VNC     | 5900 | Password spray, screen capture attempts         |
+| Telnet  |   23 | Default credential stuffing                     |
+| SSH     |   22 | Brute force, lateral movement pivot             |
+| HL7     | 2575 | Patient record enumeration, ADT message probing |
+| SMTP    |   25 | Open relay testing, address enumeration         |
 
 ---
 
@@ -199,7 +199,7 @@ curl "http://20.242.13.15:8080/api/search?username=admin&service=ssh"
 ## Repo Structure
 
 ```
-log-n-pacific-cyber-range/
+healthccare-enterprise-honeynet-cyber-range/
 ├── README.md
 ├── ARCHITECTURE.md
 ├── LICENSE
