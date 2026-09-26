@@ -10,8 +10,8 @@
 ## Step 1: Clone the Repo
 
 ```bash
-git clone https://github.com/jennafrank/log-n-pacific-cyber-range.git
-cd log-n-pacific-cyber-range
+git clone https://github.com/jennafrank/healthcare-enterprise-honeynet.git
+cd healthcare-enterprise-honeynet
 ```
 
 ## Step 2: Deploy Meridian HR
@@ -49,7 +49,7 @@ The unified dashboard is served from Meridian's port 9090. You need to update th
 Edit `honeypots/meridian-hr/dashboard/templates/unified.html`:
 ```javascript
 // Find this line near the top of the <script> block:
-const CAS_BASE = 'http://20.246.106.71:8080';
+const CAS_BASE = 'http://<cascade-public-ip>:8080';
 // Replace with your Cascade Medical VM's public IP:
 const CAS_BASE = 'http://YOUR_CASCADE_IP:8080';
 ```

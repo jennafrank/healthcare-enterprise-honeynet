@@ -1,4 +1,4 @@
-# 🍯 Healthccare Enterprise Honeynet
+# 🍯 Healthcare Enterprise Honeynet
 
 **A production-grade two-node honeypot deployment for threat hunting, SOC training, and attacker behavior research.**
 
@@ -13,7 +13,7 @@ Built and maintained by [Jenna Frank](https://github.com/jennafrank) using [Clau
 
 ## What Is This?
 
-The Healthccare Enterprise Honeynet is a realistic multi-service honeypot environment that mimics two organizations in a healthcare network:
+The Healthcare Enterprise Honeynet is a realistic multi-service honeypot environment that mimics two organizations in a healthcare network:
 
 | Node                    | Identity                        | Services                                        |
 |-------------------------|---------------------------------|-------------------------------------------------|
@@ -28,11 +28,11 @@ Every attacker who touches either system is logged, enriched with threat intelli
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│           Healthccare Enterprise Honeynet Cyber Range               │
+│           Healthcare Enterprise Honeynet Cyber Range                │
 │                        Azure East US 2                              │
 ├──────────────────────────────┬──────────────────────────────────────┤
 │   Meridian HR Node           │   Cascade Medical Node               │
-│   20.242.13.15               │   20.246.106.71                      │
+│   <public-ip>                │   <public-ip>                        │
 │                              │                                      │
 │   SSH     :22                │   RDP      :3389                     │
 │   Redis   :6379              │   MSSQL    :1433                     │
@@ -54,15 +54,20 @@ Every attacker who touches either system is logged, enriched with threat intelli
 
 ---
 
-## Live Dashboards
+## Dashboards
+
+The dashboards are not publicly hosted. Run them on your own deployment:
 
 | Dashboard | URL | Description |
 |-----------|-----|-------------|
-| Meridian HR | `http://20.242.13.15:8080` | Single-node Meridian dashboard |
-| Cascade Medical | `http://20.246.106.71:8080` | Single-node Cascade dashboard |
-| **Unified SOC** | `http://20.242.13.15:9090` | **Combined view of both honeypots** |
+| Meridian HR | `http://<meridian-public-ip>:8080` | Single-node Meridian dashboard |
+| Cascade Medical | `http://<cascade-public-ip>:8080` | Single-node Cascade dashboard |
+| **Unified SOC** | `http://<meridian-public-ip>:9090` | **Combined view of both honeypots** |
 
-The unified dashboard includes a **Threat Hunt** panel — search across both honeypots by IP, username, command, or service with live results.
+The unified dashboard includes a **Threat Hunt** panel: search across both honeypots by IP, username, command, or service with live results. Set the Cascade node's address in `honeypots/meridian-hr/dashboard/templates/unified.html` (`CAS_BASE`).
+
+> [!WARNING]
+> **The dashboards and the search API have no authentication**, and they listen on all interfaces (`0.0.0.0`). Anyone who can reach ports 8080 and 9090 can read every captured session, credential and command. Restrict those ports to your own IP address with an Azure Network Security Group, or reach them through an SSH tunnel. Do not expose them to the internet. The unified dashboard's browser code calls the Cascade node's API directly, so the Cascade port 8080 rule must allow your IP too.
 
 ---
 
@@ -77,8 +82,8 @@ The unified dashboard includes a **Threat Hunt** panel — search across both ho
 ### Deploy Meridian HR
 
 ```bash
-git clone https://github.com/jennafrank/log-n-pacific-cyber-range.git
-cd log-n-pacific-cyber-range/honeypots/meridian-hr
+git clone https://github.com/jennafrank/healthcare-enterprise-honeynet.git
+cd healthcare-enterprise-honeynet/honeypots/meridian-hr
 
 cp .env.example .env
 # Edit .env with your API keys
@@ -91,7 +96,7 @@ Dashboard at `http://YOUR_IP:8080`
 ### Deploy Cascade Medical
 
 ```bash
-cd log-n-pacific-cyber-range/honeypots/cascade-medical
+cd healthcare-enterprise-honeynet/honeypots/cascade-medical
 
 cp .env.example .env
 docker compose up -d
@@ -107,27 +112,44 @@ The unified dashboard runs as a second Flask app on port 9090 of the Meridian no
 
 ## Services Covered
 
+What attackers actually did, from the honeypot databases in [`backups/`](backups/). This is a short window: about a day and a half per node, June 17 to 19, 2026 (timestamps as recorded by the honeypots).
+
+**Across both nodes, nearly everything was internet-wide scanning and credential guessing.** None of the deeper techniques these services were built to attract (AS-REP roasting, Redis replication hijack, `xp_cmdshell`, HL7 record enumeration) appeared in this window.
+
 ### Meridian HR (Corporate HR System)
-| Service | Port   | What Attackers Do |
-|---------|--------|--------------------------------------------------------|
-| SSH     |    22  | Brute force, shell access, command execution           |
-| Redis   |  6379  | KEYS enumeration, config tampering, replication hijack |
-| MongoDB | 27017  | Collection dumps, user enumeration, db drop attempts   |
-| MySQL   |  3306  | SELECT * dumps, credential brute force                 |
-| Kerberos|    88  | AS-REP roasting, TGS-REQ (Kerberoasting)               |
-| LDAP    |389/636 | Directory enumeration, user/group listing              |
-| SMB     |   445  | Share enumeration, pass-the-hash attempts              |
+
+June 17 22:46 to June 19 04:53: 444 sessions from 208 IP addresses.
+
+| Service | Port | Sessions | Source IPs | What we saw |
+|---------|------|---------:|-----------:|-------------|
+| SSH | 22 | 157 | 59 | 81 login attempts from 8 IPs; `root`, `admin` and `test` tried most. No commands recorded. |
+| LDAP | 389/636 | 111 | 72 | Connections only; no directory queries recorded. |
+| MongoDB | 27017 | 105 | 44 | Handshake queries against `admin.$cmd` and a `buildinfo` probe. Fingerprinting, no data access. |
+| Redis | 6379 | 37 | 21 | `PING`, `INFO`, `QUIT`, and HTTP `GET` requests sent to the Redis port by web scanners. No config changes. |
+| Kerberos | 88 | 34 | 19 | Malformed and HTTP-style requests from scanners. No AS-REP roasting or Kerberoasting. |
+| MySQL | 3306 | 0 | 0 | None recorded in this window. |
+| SMB | 445 | 0 | 0 | None recorded in this window. |
 
 ### Cascade Medical EMR (Hospital System)
-| Service | Port | What Attackers Do |
-|---------|------|-------------------|-----------------------------|
-| RDP     | 3389 | Credential spray, session hijacking             |
-| MSSQL   | 1433 | xp_cmdshell, SA brute force, data dumps         |
-| VNC     | 5900 | Password spray, screen capture attempts         |
-| Telnet  |   23 | Default credential stuffing                     |
-| SSH     |   22 | Brute force, lateral movement pivot             |
-| HL7     | 2575 | Patient record enumeration, ADT message probing |
-| SMTP    |   25 | Open relay testing, address enumeration         |
+
+June 18 03:25 to June 19 05:43: 2,458 sessions from 122 IP addresses.
+
+| Service | Port | Sessions | Source IPs | What we saw |
+|---------|------|---------:|-----------:|-------------|
+| Telnet | 23 | 1,516 | 17 | 3,744 login attempts from 12 IPs. The most common "usernames" were `enable`, `system` and `sh`, shell-escape strings used by IoT botnet tooling. |
+| VNC | 5900 | 717 | 3 | 713 login attempts from a single IP, all with username `vnc`. |
+| SSH | 22 | 67 | 49 | 10 login attempts from 5 IPs. No commands recorded. |
+| MongoDB | 27017 | 49 | 4 | Handshake queries against `admin.$cmd`. |
+| RDP | 3389 | 42 | 6 | Connection requests carrying scanner `mstshash` cookies; 5 login attempts. |
+| LDAP | 389/636/3268 | 15 | 9 | Connections only. |
+| SMTP | 25/587 | 12 | 10 | `EHLO` from scanners identifying as `masscan` and `scan.invalid`, and `STARTTLS`. No relay attempts recorded. |
+| Kerberos | 88 | 11 | 8 | Malformed and HTTP-style requests. |
+| MySQL | 3306 | 9 | 7 | `SET AUTOCOMMIT=0`, `SHOW DATABASES`. |
+| Redis | 6379 | 9 | 5 | `PING`, `INFO`, `QUIT`. |
+| Elasticsearch | 9200 | 8 | 3 | `GET /` and `GET /_cat/indices`: index enumeration. |
+| MSSQL | 1433 | 3 | 1 | Connections only; no queries recorded. |
+| HL7 | 2575 | 0 | 0 | None recorded in this window. |
+| SMB | 445 | 0 | 0 | None recorded in this window. |
 
 ---
 
@@ -176,7 +198,7 @@ The `threat-hunting/` directory contains:
 
 ### Live Hunt
 
-Use the **Threat Hunt panel** in the unified dashboard at `http://20.242.13.15:9090`:
+Use the **Threat Hunt panel** in the unified dashboard at `http://<meridian-public-ip>:9090`:
 - Search by IP, username, command keyword, or service
 - Results across Sessions, Commands, and Credentials tabs
 - Queries both honeypots simultaneously
@@ -185,13 +207,13 @@ Use the **Threat Hunt panel** in the unified dashboard at `http://20.242.13.15:9
 
 ```bash
 # Find all wget/curl commands
-curl "http://20.242.13.15:8080/api/search?command=wget"
+curl "http://<meridian-public-ip>:8080/api/search?command=wget"
 
 # Find all attempts from a specific IP
-curl "http://20.242.13.15:8080/api/search?ip=118.194"
+curl "http://<meridian-public-ip>:8080/api/search?ip=203.0.113"
 
 # Find all SSH attempts with username 'admin'
-curl "http://20.242.13.15:8080/api/search?username=admin&service=ssh"
+curl "http://<meridian-public-ip>:8080/api/search?username=admin&service=ssh"
 ```
 
 ---
@@ -199,7 +221,7 @@ curl "http://20.242.13.15:8080/api/search?username=admin&service=ssh"
 ## Repo Structure
 
 ```
-healthccare-enterprise-honeynet-cyber-range/
+healthcare-enterprise-honeynet/
 ├── README.md
 ├── ARCHITECTURE.md
 ├── LICENSE
@@ -284,15 +306,12 @@ Plus whichever honeypot ports you want exposed to the internet.
 
 ## Built With Claude Code
 
-This entire project — both honeypots, all dashboards, the threat hunting framework, and the synthetic document ecosystem — was built using [Claude Code](https://claude.ai/code) (Anthropic's AI-powered CLI).
+I built this with [Claude Code](https://claude.ai/code) as my coding partner. Claude Code wrote most of the Python service emulators, the Flask dashboards, the synthetic documents and the documentation, working from my direction. My part:
 
-Key things Claude Code helped build:
-- All Python honeypot service emulators from scratch
-- The Flask SOC dashboards with real-time SSE updates
-- The unified cross-honeypot dashboard with live search
-- MITRE ATT&CK detection and sophistication scoring
-- 3,181 synthetic healthcare documents
-- This entire repository and documentation
+- **Designed the scenario:** two fictional healthcare organizations, an HR software company and a hospital EMR, on separate Azure VMs, networked so lateral movement between them would show up. I chose which services each node exposes.
+- **Decided what to capture:** session, credential and command logging per node, MITRE ATT&CK tagging, and the 1 to 10 sophistication rubric in [`threat-hunting/`](threat-hunting/).
+- **Deployed and ran it** on Azure and collected the attacker traffic summarized in [Services Covered](#services-covered).
+- **Tested and verified it** myself before and during the run.
 
 ---
 

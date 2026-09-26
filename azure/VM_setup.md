@@ -60,8 +60,8 @@ sudo usermod -aG docker $USER
 ### 5. Clone and Deploy
 
 ```bash
-git clone https://github.com/jennafrank/log-n-pacific-cyber-range.git
-cd log-n-pacific-cyber-range/honeypots/meridian-hr
+git clone https://github.com/jennafrank/healthcare-enterprise-honeynet.git
+cd healthcare-enterprise-honeynet/honeypots/meridian-hr
 cp .env.example .env
 docker compose up -d
 ```

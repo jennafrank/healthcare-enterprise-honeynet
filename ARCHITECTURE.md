@@ -9,7 +9,7 @@
               ▼                         ▼
     ┌──────────────────┐     ┌──────────────────────┐
     │  Meridian HR     │     │  Cascade Medical EMR │
-    │  20.242.13.15    │     │  20.246.106.71       │
+    │  <public-ip>     │     │  <public-ip>         │
     │                  │     │                      │
     │  Azure NSG       │     │  Azure NSG           │
     │  (inbound rules) │     │  (inbound rules)     │

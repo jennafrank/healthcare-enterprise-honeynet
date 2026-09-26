@@ -49,7 +49,7 @@ Port 2223
 
 **Cause:** CORS or the Cascade IP hasn't been updated in unified.html.
 
-**Check:** Open browser DevTools → Network tab → look for failed requests to `20.246.106.71:8080`
+**Check:** Open browser DevTools → Network tab → look for failed requests to `<cascade-public-ip>:8080`
 
 **Fix:** Verify Cascade's `/api/stats` is reachable:
 ```bash
