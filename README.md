@@ -1,4 +1,14 @@
-# 🍯 Healthcare Enterprise Honeynet
+<img src="honeynet_banner_animated.svg" alt="Healthcare Enterprise Honeynet" width="100%"/>
+
+# Healthcare Enterprise Honeynet
+
+Two decoy organizations — **Meridian HR** and **Cascade Medical** — peered over an Azure VNet and funneled into one investigation view.
+
+## Investigation view
+
+![Honeynet investigation overview — Meridian HR and Cascade Medical session activity, service breakdown, and high-interest sessions](docs/healthcare-honeynet.png)
+
+*Unified dashboard across both honeypot nodes: activity volume, service breakdown, and high-interest sessions. Reconstructed from project captures (June 2026).*
 
 **A production-grade two-node honeypot deployment for threat hunting, SOC training, and attacker behavior research.**
 
