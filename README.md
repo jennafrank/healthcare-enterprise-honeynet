@@ -304,17 +304,6 @@ Plus whichever honeypot ports you want exposed to the internet.
 
 ---
 
-## Built With Claude Code
-
-I built this with [Claude Code](https://claude.ai/code) as my coding partner. Claude Code wrote most of the Python service emulators, the Flask dashboards, the synthetic documents and the documentation, working from my direction. My part:
-
-- **Designed the scenario:** two fictional healthcare organizations, an HR software company and a hospital EMR, on separate Azure VMs, networked so lateral movement between them would show up. I chose which services each node exposes.
-- **Decided what to capture:** session, credential and command logging per node, MITRE ATT&CK tagging, and the 1 to 10 sophistication rubric in [`threat-hunting/`](threat-hunting/).
-- **Deployed and ran it** on Azure and collected the attacker traffic summarized in [Services Covered](#services-covered).
-- **Tested and verified it** myself before and during the run.
-
----
-
 ## Contributing
 
 Pull requests welcome. Areas of interest:
