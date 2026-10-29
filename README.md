@@ -12,7 +12,7 @@ Two decoy organizations — **Meridian HR** and **Cascade Medical** — peered o
 
 **A production-grade two-node honeypot deployment for threat hunting, SOC training, and attacker behavior research.**
 
-Built and maintained by [Jenna Frank](https://github.com/jennafrank) using [Claude Code](https://claude.ai/code).
+Built and maintained by [Jenna Frank](https://github.com/jennafrank) and Daniel Torres.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/python-3.12-blue)
